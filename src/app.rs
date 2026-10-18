@@ -1324,10 +1324,18 @@ impl App {
         }
         // connector started by a click: it follows the mouse; the next click places it
         if let Some((id, src)) = self.pending_arrow {
-            let placing = resp.clicked() || resp.drag_stopped();
-            // where the click/tap landed; on touch screens the pointer is gone between taps,
-            // so with no position the connector just waits where it is
-            let pos = if placing { resp.interact_pointer_pos() } else { None }.or_else(|| ctx.input(|i| i.pointer.latest_pos())).or(hover);
+            // where the click/tap was released, read from the raw event: on touch screens the
+            // pointer is "gone" right after a finger lifts, so egui's own positions are empty
+            let canvas = self.canvas;
+            let released = ctx.input(|i| {
+                i.events.iter().rev().find_map(|e| match e {
+                    egui::Event::PointerButton { pos, pressed: false, .. } if canvas.contains(*pos) => Some(*pos),
+                    _ => None,
+                })
+            });
+            let placing = released.is_some() || resp.clicked() || resp.drag_stopped();
+            // with no position at all (finger lifted, nothing new) the connector waits where it is
+            let pos = released.or_else(|| ctx.input(|i| i.pointer.latest_pos())).or(hover);
             let Some(sp) = pos else { return };
             let w = v.s2w(sp);
             let (t, side) = self.drop_at(w, Some(src));
