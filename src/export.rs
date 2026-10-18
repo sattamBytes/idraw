@@ -2,7 +2,7 @@
 
 use crate::icons;
 use crate::model::*;
-use crate::render::{arrow_state, label_size, scenario_visited, step_title};
+use crate::render::{arrow_state, label_size, step_title};
 use crate::theme;
 use eframe::egui::{Color32, Pos2, Rect, pos2, vec2};
 use std::fmt::Write;
@@ -371,7 +371,8 @@ pub fn scenario_svg(doc: &Doc, scn: &Scenario, t: f32, look: Look) -> Option<(St
     let bg = if look.dark { DARK_BG } else { Color32::WHITE };
     let mut o = String::new();
     header(&mut o, b, bg);
-    for e in doc.elements.iter().filter(|e| ids.contains(&e.id)) {
+    // components always visible; connectors appear as the request reaches them
+    for e in doc.elements.iter().filter(|e| ids.contains(&e.id) && e.kind != Kind::Arrow) {
         element(&mut o, &c, e);
     }
     if scn.steps.is_empty() {
@@ -379,14 +380,15 @@ pub fn scenario_svg(doc: &Doc, scn: &Scenario, t: f32, look: Look) -> Option<(St
         return Some((o, b));
     }
     let st = scenario_state(scn.steps.len(), t);
-    let _ = write!(o, r#"<rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" {} fill-opacity="0.78"/>"#, b.min.x, b.min.y, b.width(), b.height(), paint("fill", bg));
     let hl = INDIGO;
-    for s in &scn.steps[..st.step] {
-        poly_path(&mut o, &doc.step_path(s), false, &format!(r#"fill="none" stroke="{}" stroke-opacity="0.55" stroke-width="3" stroke-linecap="round" stroke-linejoin="round""#, hex(hl)));
-    }
-    let visited = scenario_visited(scn, &st);
-    for e in doc.elements.iter().filter(|e| visited.contains(&e.id)) {
-        element(&mut o, &c, e);
+    for (i, s) in scn.steps.iter().enumerate() {
+        if !(i < st.step || (i == st.step && st.since_arrive >= 0.0)) {
+            continue;
+        }
+        match doc.step_arrow(s) {
+            Some(a) => element(&mut o, &c, a),
+            None => poly_path(&mut o, &doc.step_path(s), false, &format!(r#"fill="none" stroke="{}" stroke-width="2" stroke-linecap="round""#, hex(hl))),
+        }
     }
     let cur = &scn.steps[st.step];
     let path = doc.step_path(cur);

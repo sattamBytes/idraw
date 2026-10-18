@@ -39,6 +39,8 @@ pub struct Opts<'a> {
     pub hide_text: Option<u64>,
     /// comments to show expanded (hovered / selected)
     pub open_comments: &'a [u64],
+    /// scenario playback: connectors appear only as the request reaches them
+    pub skip_arrows: bool,
 }
 
 pub fn font(size: f32, bold: bool, hand: bool) -> FontId {
@@ -114,7 +116,7 @@ fn cr(px: f32) -> CornerRadius {
 }
 
 pub fn draw_doc(p: &Painter, ctx: &Context, doc: &Doc, v: &View, icons: &mut Icons, o: &Opts) {
-    for e in &doc.elements {
+    for e in doc.elements.iter().filter(|e| !(o.skip_arrows && e.kind == Kind::Arrow)) {
         draw_element(p, ctx, doc, e, v, icons, o);
     }
     // popovers last so nothing covers them
@@ -392,40 +394,23 @@ pub fn draw_grid(p: &Painter, rect: Rect, v: &View) {
     }
 }
 
-/// Elements a scenario has "lit up" by time state `st`.
-pub fn scenario_visited(scn: &Scenario, st: &ScnState) -> Vec<u64> {
-    let mut ids = vec![];
-    for (i, s) in scn.steps.iter().enumerate() {
-        if i == 0 {
-            ids.push(s.from);
-        }
-        if i < st.step || (i == st.step && st.since_arrive >= 0.0) {
-            ids.push(s.to);
-        }
-        if i == st.step {
-            ids.push(s.from);
-        }
-    }
-    ids
-}
-
-/// Dims the canvas and plays a scenario on top: lit nodes, travelling packet, arrival pulse.
+/// Plays a scenario: connectors appear hop by hop with a travelling packet and arrival pulse.
 pub fn draw_scenario(p: &Painter, ctx: &Context, doc: &Doc, v: &View, icons: &mut Icons, o: &Opts, scn: &Scenario, t: f32, canvas: Rect) {
     if scn.steps.is_empty() {
         return;
     }
     let st = scenario_state(scn.steps.len(), t);
-    let bg = theme::canvas_bg();
-    p.rect_filled(canvas, 0.0, Color32::from_rgba_unmultiplied(bg.r(), bg.g(), bg.b(), 200));
     let z = v.zoom;
     let hl = theme::INDIGO;
-    // trail of completed hops
-    for s in &scn.steps[..st.step] {
-        p.add(Shape::line(v.pts(&doc.step_path(s)), Stroke::new(3.0 * z, hl.gamma_multiply(0.55))));
-    }
-    let visited = scenario_visited(scn, &st);
-    for e in doc.elements.iter().filter(|e| visited.contains(&e.id)) {
-        draw_element(p, ctx, doc, e, v, icons, o);
+    // components are all drawn already; connectors appear hop by hop
+    let done = |i: usize| i < st.step || (i == st.step && st.since_arrive >= 0.0);
+    for (_, s) in scn.steps.iter().enumerate().filter(|(i, _)| done(*i)) {
+        match doc.step_arrow(s) {
+            Some(a) => draw_element(p, ctx, doc, a, v, icons, o),
+            None => {
+                p.add(Shape::line(v.pts(&doc.step_path(s)), Stroke::new(2.0 * z, hl)));
+            }
+        }
     }
     let cur = &scn.steps[st.step];
     let path = doc.step_path(cur);

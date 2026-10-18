@@ -755,71 +755,112 @@ impl App {
             return;
         }
         let now = ctx.input(|i| i.time);
-        let mut act: Option<(&str, usize)> = None;
+        let mut act: Option<(&str, usize, usize)> = None;
         egui::Area::new(Id::new("scenarios")).anchor(Align2::RIGHT_BOTTOM, vec2(self.right_x(), -64.0)).show(ctx, |ui| {
             panel().inner_margin(Margin::same(12)).show(ui, |ui| {
-                ui.set_width(320.0);
-                ui.set_max_height(520.0); // before any widget: it resets the cursor
+                ui.set_width(330.0);
+                ui.set_max_height(560.0); // before any widget: it resets the cursor
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Scenarios").strong().size(14.0));
+                    ui.label(RichText::new("Request scenarios").strong().size(14.0));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if icon_button(ui, &mut self.icons, "x", false, "Close").clicked() {
                             self.scn_panel = false;
                         }
                     });
                 });
+                ui.label(RichText::new("Animate how one request travels through your system.").color(theme::muted()));
                 if self.doc.scenarios.is_empty() {
-                    ui.label(RichText::new("Show how a request travels: click components in order, then play it back or export it as a GIF.").color(theme::muted()));
+                    ui.add_space(6.0);
+                    Frame::new().fill(theme::hover()).corner_radius(8).inner_margin(Margin::same(10)).show(ui, |ui| {
+                        ui.set_width(310.0);
+                        for (n, t) in [
+                            ("1", "Press Record below"),
+                            ("2", "Click components in the order the request visits them, e.g. Users → API → Orders → DB"),
+                            ("3", "Press Done (or Enter)"),
+                            ("4", "Add a caption to each step, then press ▶ to play or ⤓ to export a GIF"),
+                        ] {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(RichText::new(n).strong().color(theme::INDIGO));
+                                ui.label(t);
+                            });
+                        }
+                    });
                 }
+                ui.add_space(4.0);
                 egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
-                    let names: Vec<String> = self.doc.scenarios.iter().map(|s| s.name.clone()).collect();
-                    for (i, _) in names.iter().enumerate() {
+                    let n = self.doc.scenarios.len();
+                    for i in 0..n {
                         let playing = self.scn_play.is_some_and(|p| p.0 == i);
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 2.0;
                             if icon_button(ui, &mut self.icons, if playing { "stop" } else { "play" }, playing, if playing { "Stop" } else { "Play" }).clicked() {
-                                act = Some(("play", i));
+                                act = Some(("play", i, 0));
                             }
                             let s = &mut self.doc.scenarios[i];
-                            if ui.add(TextEdit::singleline(&mut s.name).desired_width(170.0).frame(false).font(egui::TextStyle::Body)).changed() {
+                            if ui.add(TextEdit::singleline(&mut s.name).desired_width(180.0).frame(false).font(egui::TextStyle::Body)).on_hover_text("Click to rename").changed() {
                                 self.dirty = true;
                             }
-                            if icon_button(ui, &mut self.icons, "download", false, "Export as GIF").clicked() {
-                                act = Some(("gif", i));
+                            if icon_button(ui, &mut self.icons, "download", false, "Export as animated GIF").clicked() {
+                                act = Some(("gif", i, 0));
                             }
                             if icon_button(ui, &mut self.icons, "trash", false, "Delete scenario").clicked() {
-                                act = Some(("del", i));
+                                act = Some(("del", i, 0));
                             }
                         });
                         let steps = self.doc.scenarios[i].steps.clone();
-                        egui::CollapsingHeader::new(RichText::new(format!("{} steps", steps.len())).small().color(theme::muted())).id_salt(("steps", i)).default_open(playing).show(ui, |ui| {
-                            for (k, st) in steps.iter().enumerate() {
-                                ui.label(RichText::new(format!("{}. {}", k + 1, render::step_title(&self.doc, st))).small().strong());
-                                let cap = &mut self.doc.scenarios[i].steps[k].caption;
-                                if ui.add(TextEdit::singleline(cap).hint_text("Caption shown during playback…").desired_width(f32::INFINITY)).changed() {
-                                    self.dirty = true;
+                        egui::CollapsingHeader::new(RichText::new(format!("{} steps · captions", steps.len())).small().color(theme::muted()))
+                            .id_salt(("steps", i))
+                            .default_open(playing || n == 1)
+                            .show(ui, |ui| {
+                                for (k, st) in steps.iter().enumerate() {
+                                    ui.horizontal(|ui| {
+                                        ui.label(RichText::new(format!("{}. {}", k + 1, render::step_title(&self.doc, st))).small().strong());
+                                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                            if ui.add(egui::Button::new(RichText::new("✕").small()).frame(false)).on_hover_text("Remove this step").clicked() {
+                                                act = Some(("delstep", i, k));
+                                            }
+                                        });
+                                    });
+                                    let cap = &mut self.doc.scenarios[i].steps[k].caption;
+                                    if ui.add(TextEdit::singleline(cap).hint_text("What happens here? (shown while playing)").desired_width(f32::INFINITY)).changed() {
+                                        self.dirty = true;
+                                    }
                                 }
-                            }
-                        });
-                        ui.add_space(2.0);
+                                if ui.button("+ Add more steps").on_hover_text("Click more components to extend this scenario").clicked() {
+                                    act = Some(("extend", i, 0));
+                                }
+                            });
+                        ui.add_space(4.0);
                     }
                 });
                 ui.add_space(4.0);
-                let b = egui::Button::new(RichText::new("●  Record new scenario").color(Color32::WHITE).strong()).fill(theme::RED).corner_radius(8).min_size(vec2(320.0, 32.0));
-                if ui.add(b).clicked() {
-                    act = Some(("record", 0));
+                let b = egui::Button::new(RichText::new("●  Record").color(Color32::WHITE).strong()).fill(theme::RED).corner_radius(8).min_size(vec2(330.0, 32.0));
+                if ui.add(b).on_hover_text("Then click components in order").clicked() {
+                    act = Some(("record", 0, 0));
                 }
             });
         });
         match act {
-            Some(("play", i)) => self.scn_play = if self.scn_play.is_some_and(|p| p.0 == i) { None } else { Some((i, now)) },
-            Some(("gif", i)) => self.export(ctx, "gif", Some(i)),
-            Some(("del", i)) => {
+            Some(("play", i, _)) => self.scn_play = if self.scn_play.is_some_and(|p| p.0 == i) { None } else { Some((i, now)) },
+            Some(("gif", i, _)) => self.export(ctx, "gif", Some(i)),
+            Some(("del", i, _)) => {
                 self.checkpoint();
                 self.doc.scenarios.remove(i);
                 self.scn_play = None;
             }
-            Some(("record", _)) => self.start_record(),
+            Some(("delstep", i, k)) => {
+                self.checkpoint();
+                self.doc.scenarios[i].steps.remove(k);
+                self.scn_play = None;
+            }
+            Some(("extend", i, _)) => {
+                // continue recording from the last component of this scenario
+                let last = self.doc.scenarios[i].steps.last().map(|s| s.to);
+                self.scn_play = None;
+                self.rec = Some((self.doc.scenarios[i].name.clone(), last.into_iter().collect()));
+                self.rec_into = Some(i);
+            }
+            Some(("record", _, _)) => self.start_record(),
             _ => {}
         }
     }

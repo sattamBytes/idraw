@@ -174,6 +174,7 @@ pub struct App {
     export_menu: bool,
     hover_shape: Option<u64>,
     drop_target: Option<u64>,
+    drop_side: Option<u8>,
     fit_pending: bool,
     cascade: f32,
     nudge: Option<Vec2>,
@@ -199,6 +200,8 @@ pub struct App {
     custom_bounds: Vec<CustomBoundary>,
     bound_editor: Option<BoundEditor>,
     lib_custom: usize,
+    /// recording appends to this scenario instead of creating a new one
+    rec_into: Option<usize>,
 }
 
 impl App {
@@ -247,6 +250,7 @@ impl App {
             export_menu: false,
             hover_shape: None,
             drop_target: None,
+            drop_side: None,
             cascade: 0.0,
             nudge: None,
             dark,
@@ -270,6 +274,7 @@ impl App {
             custom_bounds: st.and_then(|s| s.get_string("boundaries")).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
             bound_editor: None,
             lib_custom: 0,
+            rec_into: None,
         }
     }
 
@@ -514,6 +519,7 @@ impl App {
     }
 
     fn start_record(&mut self) {
+        self.rec_into = None;
         let n = self.doc.scenarios.len() + 1;
         self.rec = Some((format!("Scenario {n}"), vec![]));
         self.scn_play = None;
@@ -523,14 +529,24 @@ impl App {
 
     fn finish_record(&mut self, ctx: &Context) {
         let Some((name, nodes)) = self.rec.take() else { return };
+        let into = self.rec_into.take().filter(|i| *i < self.doc.scenarios.len());
         if nodes.len() < 2 {
-            return self.toast(ctx, "Scenario needs at least two components");
+            return self.toast(ctx, "Click at least two components, in order");
         }
         self.checkpoint();
-        let steps = nodes.windows(2).map(|w| Step { from: w[0], to: w[1], caption: String::new() }).collect();
-        self.doc.scenarios.push(Scenario { name, steps });
+        let steps: Vec<Step> = nodes.windows(2).map(|w| Step { from: w[0], to: w[1], caption: String::new() }).collect();
+        let idx = match into {
+            Some(i) => {
+                self.doc.scenarios[i].steps.extend(steps);
+                i
+            }
+            None => {
+                self.doc.scenarios.push(Scenario { name, steps });
+                self.doc.scenarios.len() - 1
+            }
+        };
         self.scn_panel = true;
-        self.scn_play = Some((self.doc.scenarios.len() - 1, ctx.input(|i| i.time)));
+        self.scn_play = Some((idx, ctx.input(|i| i.time)));
     }
 
     fn open_picker(&mut self, screen: Pos2, connect: Option<(u64, u64)>) {
@@ -827,6 +843,24 @@ impl App {
         }
     }
 
+    /// Shape (and side, if a side dot is under the pointer) a connector end would attach to.
+    fn drop_at(&self, w: Pos2, skip: Option<u64>) -> (Option<u64>, Option<u8>) {
+        let snap = 18.0 / self.zoom;
+        for e in self.doc.elements.iter().rev().filter(|e| e.bindable() && Some(e.id) != skip) {
+            if !e.rect.expand(snap).contains(w) {
+                continue;
+            }
+            let (i, d) = (0..4u8).map(|i| (i, side_point(e.rect, i).distance(w))).min_by(|a, b| a.1.total_cmp(&b.1)).unwrap();
+            if d < snap {
+                return (Some(e.id), Some(i));
+            }
+            if e.rect.expand(4.0).contains(w) {
+                return (Some(e.id), None);
+            }
+        }
+        (None, None)
+    }
+
     /// Connection anchors (screen) around a shape, offset outward.
     fn anchors(&self, id: u64) -> Vec<(Pos2, Pos2)> {
         let v = self.view();
@@ -875,11 +909,12 @@ impl App {
             }
         }
         if let Some(src) = self.hover_shape {
-            if self.anchors(src).iter().any(|(a, _)| a.distance(sp) < 9.0) {
+            if let Some(i) = self.anchors(src).iter().position(|(a, _)| a.distance(sp) < 9.0) {
                 self.checkpoint();
                 let mut a = Element::new(Kind::Arrow, Rect::ZERO);
-                a.from = End { id: Some(src), p: w };
-                a.to = End { id: None, p: w };
+                // the dot you grabbed is the side the connector leaves from
+                a.from = End { id: Some(src), p: w, side: Some(i as u8) };
+                a.to = End { id: None, p: w, side: None };
                 let id = self.doc.add(a);
                 self.sel = vec![id];
                 self.drag = Drag::ArrowEnd { id, to: true, source: Some(src) };
@@ -1057,8 +1092,9 @@ impl App {
                 Tool::Arrow => {
                     self.checkpoint();
                     let mut a = Element::new(Kind::Arrow, Rect::ZERO);
-                    a.from = End { id: self.doc.hit_bindable(w, None), p: w };
-                    a.to = End { id: None, p: w };
+                    let (id, side) = self.drop_at(w, None);
+                    a.from = End { id, p: w, side };
+                    a.to = End { id: None, p: w, side: None };
                     let id = self.add_select(a);
                     self.drag = Drag::ArrowEnd { id, to: true, source: None };
                 }
@@ -1141,10 +1177,11 @@ impl App {
                 Drag::ArrowEnd { id, to, .. } => {
                     let (id, to) = (*id, *to);
                     let other = self.doc.get(id).and_then(|e| if to { e.from.id } else { e.to.id });
-                    let t = self.doc.hit_bindable(w, other);
+                    let (t, side) = self.drop_at(w, other);
                     self.drop_target = t;
+                    self.drop_side = side;
                     if let Some(e) = self.doc.get_mut(id) {
-                        *(if to { &mut e.to } else { &mut e.from }) = End { id: t, p: w };
+                        *(if to { &mut e.to } else { &mut e.from }) = End { id: t, p: w, side };
                     }
                 }
                 Drag::Bend(id) => {
@@ -1206,6 +1243,7 @@ impl App {
                 }
                 Drag::ArrowEnd { id, to, source } => {
                     self.drop_target = None;
+                    self.drop_side = None;
                     let len = self.doc.get(id).map(|e| path_len(&self.doc.arrow_path(e))).unwrap_or(0.0);
                     let free = self.doc.get(id).is_some_and(|e| if to { e.to.id.is_none() } else { e.from.id.is_none() });
                     if len < 8.0 && free {
@@ -1321,7 +1359,13 @@ impl App {
         }
         if let Some(t) = self.drop_target.and_then(|id| self.doc.get(id)) {
             let r = v.rect(t.rect).expand(4.0);
-            p.rect(r, CornerRadius::same(10), theme::INDIGO.gamma_multiply(0.08), Stroke::new(2.0, theme::INDIGO), StrokeKind::Outside);
+            p.rect(r, CornerRadius::same(10), theme::INDIGO.gamma_multiply(0.06), Stroke::new(1.5, theme::INDIGO.gamma_multiply(0.7)), StrokeKind::Outside);
+            // side dots: drop on one to pin that side, or on the body to let idraw choose
+            for i in 0..4u8 {
+                let c = v.w2s(side_point(t.rect, i));
+                let hot = self.drop_side == Some(i);
+                p.circle(c, if hot { 7.5 } else { 5.5 }, if hot { theme::INDIGO } else { Color32::WHITE }, Stroke::new(2.0, theme::INDIGO));
+            }
         }
         for id in &self.sel {
             let Some(e) = self.doc.get(*id) else { continue };
@@ -1501,7 +1545,7 @@ impl eframe::App for App {
                 .filter(|id| self.doc.get(*id).is_some_and(|e| e.kind == Kind::Comment || (e.kind == Kind::Node && !e.notes.is_empty())));
             let mut open: Vec<u64> = self.sel.iter().copied().chain(hover_comment).chain(self.editing).collect();
             open.dedup();
-            let opts = Opts { phase, dark: self.dark, sketch: self.doc.sketch, failures: self.failures, hide_text: self.editing, open_comments: &open };
+            let opts = Opts { phase, dark: self.dark, sketch: self.doc.sketch, failures: self.failures, hide_text: self.editing, open_comments: &open, skip_arrows: self.scn_play.is_some() };
             render::draw_doc(&p, ctx, &self.doc, &v, &mut self.icons, &opts);
             if let Some((i, start)) = self.scn_play {
                 if let Some(scn) = self.doc.scenarios.get(i).cloned() {

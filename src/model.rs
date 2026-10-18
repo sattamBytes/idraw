@@ -192,6 +192,20 @@ pub fn bytes_gb(gb: f32) -> String {
 pub struct End {
     pub id: Option<u64>,
     pub p: Pos2,
+    /// Side the end is pinned to (0 top, 1 right, 2 bottom, 3 left); None = pick automatically.
+    #[serde(default)]
+    pub side: Option<u8>,
+}
+
+/// Midpoint of a shape's side (0 top, 1 right, 2 bottom, 3 left).
+pub fn side_point(r: Rect, i: u8) -> Pos2 {
+    let c = r.center();
+    match i {
+        0 => pos2(c.x, r.min.y),
+        1 => pos2(r.max.x, c.y),
+        2 => pos2(c.x, r.max.y),
+        _ => pos2(r.min.x, c.y),
+    }
 }
 
 fn one() -> u8 {
@@ -403,10 +417,10 @@ impl Doc {
         for (i, a, b) in fixes {
             let e = &mut self.elements[i];
             if e.from.id.is_some_and(|id| ids.contains(&id)) {
-                e.from = End { id: None, p: a };
+                e.from = End { id: None, p: a, side: None };
             }
             if e.to.id.is_some_and(|id| ids.contains(&id)) {
-                e.to = End { id: None, p: b };
+                e.to = End { id: None, p: b, side: None };
             }
         }
         self.elements.retain(|e| !ids.contains(&e.id));
@@ -465,6 +479,11 @@ impl Doc {
         }
     }
 
+    /// Connector that links the two components of a scenario step (either direction).
+    pub fn step_arrow(&self, st: &Step) -> Option<&Element> {
+        self.elements.iter().find(|e| e.kind == Kind::Arrow && ((e.from.id == Some(st.from) && e.to.id == Some(st.to)) || (e.from.id == Some(st.to) && e.to.id == Some(st.from))))
+    }
+
     fn end_rect(&self, end: &End) -> (Rect, Option<Kind>) {
         match end.id.and_then(|id| self.get(id)) {
             Some(e) => (e.rect, Some(e.kind)),
@@ -476,10 +495,12 @@ impl Doc {
     pub fn arrow_corners(&self, e: &Element) -> Vec<Pos2> {
         let (a, ka) = self.end_rect(&e.from);
         let (b, kb) = self.end_rect(&e.to);
+        let (pa, pb) = (e.from.side.filter(|_| ka.is_some()), e.to.side.filter(|_| kb.is_some()));
         if e.style.route == Route::Straight {
+            let toward = |r: Rect, k, pin: Option<u8>, t: Pos2| pin.map_or_else(|| boundary(r, k, t), |i| side_point(r, i));
             return match e.bend {
-                Some(m) => vec![boundary(a, ka, m), m, boundary(b, kb, m)],
-                None => vec![boundary(a, ka, b.center()), boundary(b, kb, a.center())],
+                Some(m) => vec![toward(a, ka, pa, m), m, toward(b, kb, pb, m)],
+                None => vec![toward(a, ka, pa, b.center()), toward(b, kb, pb, a.center())],
             };
         }
         let area = a.union(b).expand(240.0);
@@ -501,6 +522,7 @@ impl Doc {
         if let Some(m) = e.bend {
             (m.x.to_bits(), m.y.to_bits()).hash(&mut h);
         }
+        (pa, pb).hash(&mut h);
         let key = h.finish();
         if let Some((k, p)) = self.route_cache.borrow().get(&e.id) {
             if *k == key {
@@ -511,13 +533,13 @@ impl Doc {
             // two automatic legs joined at the user's bend point
             Some(m) => {
                 let pt = Rect::from_center_size(m, Vec2::ZERO);
-                let mut p = route(a, ka.is_some(), pt, false, &obstacles, fa, pt, None);
+                let mut p = route(a, ka.is_some(), pt, false, &obstacles, fa, pt, None, pa, None);
                 let back = (p.len() >= 2).then(|| (p[p.len() - 1] - p[p.len() - 2]).normalized());
                 p.pop();
-                p.extend(route(pt, false, b, kb.is_some(), &obstacles, pt, fb, back));
+                p.extend(route(pt, false, b, kb.is_some(), &obstacles, pt, fb, back, None, pb));
                 simplify(p)
             }
-            None => route(a, ka.is_some(), b, kb.is_some(), &obstacles, fa, fb, None),
+            None => route(a, ka.is_some(), b, kb.is_some(), &obstacles, fa, fb, None, pa, pb),
         };
         self.route_cache.borrow_mut().insert(e.id, (key, p.clone()));
         p
@@ -575,27 +597,22 @@ impl Doc {
 
 const STUB: f32 = 18.0;
 
-fn sides(r: Rect, bound: bool) -> Vec<(Pos2, Vec2)> {
+fn sides(r: Rect, bound: bool, pin: Option<u8>) -> Vec<(Pos2, Vec2)> {
     if !bound {
         return vec![(r.center(), Vec2::ZERO)];
     }
-    let c = r.center();
-    vec![
-        (pos2(c.x, r.min.y), vec2(0.0, -1.0)),
-        (pos2(r.max.x, c.y), vec2(1.0, 0.0)),
-        (pos2(c.x, r.max.y), vec2(0.0, 1.0)),
-        (pos2(r.min.x, c.y), vec2(-1.0, 0.0)),
-    ]
+    let dirs = [vec2(0.0, -1.0), vec2(1.0, 0.0), vec2(0.0, 1.0), vec2(-1.0, 0.0)];
+    (0..4u8).filter(|i| pin.is_none_or(|p| p == *i)).map(|i| (side_point(r, i), dirs[i as usize])).collect()
 }
 
 /// Picks the cheapest right-angle route over all side pairs and L/Z shapes:
 /// length + bends, heavily penalising paths through other shapes or back through the endpoints.
 // ponytail: candidate search, not a full visibility-graph A*; add that if dense diagrams need it.
 #[allow(clippy::too_many_arguments)]
-fn route(a: Rect, ab: bool, b: Rect, bb: bool, obstacles: &[Rect], fa: Rect, fb: Rect, back: Option<Vec2>) -> Vec<Pos2> {
+fn route(a: Rect, ab: bool, b: Rect, bb: bool, obstacles: &[Rect], fa: Rect, fb: Rect, back: Option<Vec2>, pa: Option<u8>, pb: Option<u8>) -> Vec<Pos2> {
     let mut best = (f32::MAX, vec![a.center(), b.center()]);
-    for (s, ds) in sides(a, ab) {
-        for (t, dt) in sides(b, bb) {
+    for (s, ds) in sides(a, ab, pa) {
+        for (t, dt) in sides(b, bb, pb) {
             let (s1, t1) = (s + ds * if ab { STUB } else { 0.0 }, t + dt * if bb { STUB } else { 0.0 });
             let (mx, my) = ((s1.x + t1.x) / 2.0, (s1.y + t1.y) / 2.0);
             for mid in [vec![pos2(t1.x, s1.y)], vec![pos2(s1.x, t1.y)], vec![pos2(mx, s1.y), pos2(mx, t1.y)], vec![pos2(s1.x, my), pos2(t1.x, my)]] {
@@ -1184,8 +1201,8 @@ mod tests {
         let a = d.add(rect_el(0., 0.));
         let b = d.add(rect_el(300., 200.));
         let mut arr = Element::new(Kind::Arrow, Rect::ZERO);
-        arr.from = End { id: Some(a), p: Pos2::ZERO };
-        arr.to = End { id: Some(b), p: Pos2::ZERO };
+        arr.from = End { id: Some(a), p: Pos2::ZERO, side: None };
+        arr.to = End { id: Some(b), p: Pos2::ZERO, side: None };
         let ar = d.add(arr);
         let c = d.arrow_corners(d.get(ar).unwrap());
         assert_eq!(c.first(), Some(&pos2(100., 25.)), "leaves a's facing side");
@@ -1195,7 +1212,7 @@ mod tests {
         let c = d.arrow_corners(d.get(ar).unwrap());
         assert_eq!(c, vec![pos2(100., 25.), pos2(300., 25.)]);
         d.remove(&[b]);
-        assert_eq!(d.get(ar).unwrap().to, End { id: None, p: pos2(300., 25.) });
+        assert_eq!(d.get(ar).unwrap().to, End { id: None, p: pos2(300., 25.), side: None });
     }
 
     #[test]
@@ -1241,6 +1258,20 @@ mod tests {
         assert_eq!((x, a), (110., 0.0));
         let (_, top, _) = text_place(r, TextPos::Bottom, true, s, 10.);
         assert!(top > 60.);
+    }
+
+    #[test]
+    fn pinned_side_is_respected() {
+        let mut d = Doc::default();
+        let a = d.add(rect_el(0., 0.));
+        let b = d.add(rect_el(400., 0.));
+        let mut arr = Element::new(Kind::Arrow, Rect::ZERO);
+        arr.from = End { id: Some(a), p: Pos2::ZERO, side: Some(2) }; // leave from the bottom
+        arr.to = End { id: Some(b), p: Pos2::ZERO, side: Some(0) }; // enter from the top
+        let ar = d.add(arr);
+        let p = d.arrow_corners(d.get(ar).unwrap());
+        assert_eq!(p[0], pos2(50., 50.));
+        assert_eq!(*p.last().unwrap(), pos2(450., 0.));
     }
 
     #[test]
