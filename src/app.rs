@@ -69,6 +69,7 @@ pub(crate) const COMMANDS: &[(&str, &str, &str)] = &[
     ("Scenarios…", "", "scenarios"),
     ("Simulate an outage", "F", "failures"),
     ("Clear all pen drawings", "", "clear-ink"),
+    ("Toggle auto-save", "", "autosave"),
     ("Toggle dark mode", "⇧⌘D", "dark"),
     ("Toggle sketch (hand-drawn) style", "⇧⌘K", "sketch"),
     ("Insert component at cursor", "/", "picker"),
@@ -202,6 +203,10 @@ pub struct App {
     lib_custom: usize,
     /// recording appends to this scenario instead of creating a new one
     rec_into: Option<usize>,
+    /// write the .idraw file automatically shortly after changes
+    autosave: bool,
+    last_saved: String,
+    autosave_check: f64,
 }
 
 impl App {
@@ -275,6 +280,9 @@ impl App {
             bound_editor: None,
             lib_custom: 0,
             rec_into: None,
+            autosave: st.and_then(|s| s.get_string("autosave")).map(|v| v != "0").unwrap_or(true),
+            last_saved: String::new(),
+            autosave_check: 0.0,
         }
     }
 
@@ -577,6 +585,13 @@ impl App {
                 self.failures = !self.failures;
                 self.sel.clear();
             }
+            "autosave" => {
+                self.autosave = !self.autosave;
+                if self.autosave && self.path.is_none() {
+                    self.save(ctx, true); // auto-save needs a file to write to
+                }
+                self.toast(ctx, if self.autosave { "Auto-save on: changes are written to the file" } else { "Auto-save off: save with ⌘S" });
+            }
             "clear-ink" => {
                 let ink: Vec<u64> = self.doc.elements.iter().filter(|e| e.kind == Kind::Pen).map(|e| e.id).collect();
                 if !ink.is_empty() {
@@ -649,13 +664,42 @@ impl App {
             _ => rfd::FileDialog::new().add_filter("idraw", &["idraw"]).set_file_name("diagram.idraw").save_file(),
         };
         let Some(p) = path else { return };
-        match serde_json::to_string_pretty(&self.doc).map_err(|e| e.to_string()).and_then(|s| std::fs::write(&p, s).map_err(|e| e.to_string())) {
+        let json = serde_json::to_string_pretty(&self.doc).unwrap_or_default();
+        match std::fs::write(&p, &json).map_err(|e| e.to_string()) {
             Ok(()) => {
                 self.dirty = false;
+                self.last_saved = json;
                 self.toast(ctx, format!("Saved {}", p.file_name().unwrap_or_default().to_string_lossy()));
                 self.path = Some(p);
             }
             Err(e) => self.toast(ctx, format!("Save failed: {e}")),
+        }
+    }
+
+    /// Writes the file about a second after the last change (when auto-save is on and it has a path).
+    fn autosave_tick(&mut self, ctx: &Context, now: f64) {
+        if !self.autosave || now - self.autosave_check < 1.0 || !matches!(self.drag, Drag::None) || self.anim.is_some() {
+            return;
+        }
+        self.autosave_check = now;
+        let Some(p) = self.path.clone() else { return };
+        let json = serde_json::to_string_pretty(&self.doc).unwrap_or_default();
+        if self.last_saved.is_empty() {
+            // baseline = the doc as opened; only real edits trigger a write
+            self.last_saved = json;
+            return;
+        }
+        if json != self.last_saved {
+            match std::fs::write(&p, &json) {
+                Ok(()) => {
+                    self.last_saved = json;
+                    self.dirty = false;
+                }
+                Err(e) => {
+                    self.autosave = false;
+                    self.toast(ctx, format!("Auto-save stopped: {e}"));
+                }
+            }
         }
     }
 
@@ -666,6 +710,7 @@ impl App {
                 self.checkpoint();
                 self.doc = d;
                 self.sel.clear();
+                self.last_saved = serde_json::to_string_pretty(&self.doc).unwrap_or_default();
                 self.path = Some(p);
                 self.dirty = false;
                 self.fit();
@@ -1463,6 +1508,7 @@ impl eframe::App for App {
         }
         storage.set_string("dark", if self.dark { "1" } else { "0" }.into());
         storage.set_string("name", self.my_name.clone());
+        storage.set_string("autosave", if self.autosave { "1" } else { "0" }.into());
         storage.set_string("boundaries", serde_json::to_string(&self.custom_bounds).unwrap_or_default());
     }
 
@@ -1493,6 +1539,7 @@ impl eframe::App for App {
 
         self.shortcuts(ctx);
         self.step_anim(now);
+        self.autosave_tick(ctx, now);
 
         if let Some(c) = &mut self.collab {
             let cursor = ctx.input(|i| i.pointer.hover_pos()).filter(|p| self.canvas.contains(*p)).map(|p| View { origin: self.canvas.min + self.offset, zoom: self.zoom }.s2w(p));

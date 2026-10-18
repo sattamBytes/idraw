@@ -221,6 +221,7 @@ impl App {
     }
 
     pub(super) fn top_left(&mut self, ctx: &Context) {
+        let mut save_now = false;
         egui::Area::new(Id::new("menu")).anchor(Align2::LEFT_TOP, vec2(84.0, 10.0)).show(ctx, |ui| {
             panel().show(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -229,7 +230,17 @@ impl App {
                         self.export_menu = false;
                     }
                     let name = self.path.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().to_string()).unwrap_or("Untitled".into());
-                    ui.label(RichText::new(format!("{name}{}", if self.dirty { " •" } else { "" })).color(theme::text()).strong());
+                    ui.label(RichText::new(&name).color(theme::text()).strong());
+                    // save status
+                    if self.path.is_none() {
+                        if ui.add(egui::Button::new(RichText::new("Save…").size(12.0))).on_hover_text("Choose a file; auto-save keeps it up to date").clicked() {
+                            save_now = true;
+                        }
+                    } else if self.autosave {
+                        ui.label(RichText::new("✓ Auto-saved").size(11.5).color(theme::muted())).on_hover_text("Changes are written to the file automatically. Toggle in ☰ menu.");
+                    } else if self.dirty {
+                        ui.label(RichText::new("• Unsaved").size(11.5).color(theme::RED)).on_hover_text("⌘S to save, or turn on Auto-save in the ☰ menu");
+                    }
                     if let Some(c) = &self.collab {
                         let n = c.peers.len() + 1;
                         ui.label(RichText::new(format!("● Live · {n}")).color(Color32::from_rgb(0x10, 0xb9, 0x81)).strong()).on_hover_text(&c.status);
@@ -238,6 +249,9 @@ impl App {
                 });
             });
         });
+        if save_now {
+            self.save(ctx, true);
+        }
         if !self.menu {
             return;
         }
@@ -246,9 +260,9 @@ impl App {
             panel().show(ui, |ui| {
                 ui.set_width(250.0);
                 let groups: &[&[(&str, &str, &str)]] = &[
-                    &[("New", "", "new"), ("Open…", "⌘O", "open"), ("Save", "⌘S", "save"), ("Save as…", "⇧⌘S", "saveas")],
+                    &[("New", "", "new"), ("Open…", "⌘O", "open"), ("Save", "⌘S", "save"), ("Save as…", "⇧⌘S", "saveas"), (if self.autosave { "Auto-save: On ✓" } else { "Auto-save: Off" }, "", "autosave")],
                     &[("Import compose / k8s / Terraform / Mermaid…", "⌘I", "import"), ("Open icon packs folder", "", "icons-folder")],
-                    &[("Command palette", "⌘K", "palette"), ("Diagram as code", "⌘/", "code"), ("Auto-layout", "⇧⌘L", "layout"), ("Scenarios", "", "scenarios"), ("Collaborate live…", "", "collab")],
+                    &[("Command palette", "⌘K", "palette"), ("Diagram as code", "⌘/", "code"), ("Auto-layout", "⇧⌘L", "layout"), ("Scenarios", "", "scenarios"), ("Simulate outage", "F", "failures"), ("Collaborate live…", "", "collab")],
                     &[(if self.dark { "Light mode" } else { "Dark mode" }, "⇧⌘D", "dark"), (if self.doc.sketch { "Clean style" } else { "Sketch style" }, "⇧⌘K", "sketch"), ("Zoom to fit", "⇧1", "fit")],
                 ];
                 for (gi, g) in groups.iter().enumerate() {
@@ -559,6 +573,15 @@ impl App {
                         };
                         ui.label(RichText::new(hint).small().color(theme::muted()));
                     }
+                    if has(&[Kind::Node, Kind::Rect, Kind::Ellipse, Kind::Diamond]) {
+                        section(ui, "What if it fails?");
+                        if ui.button("⚠  Simulate outage…").on_hover_text("Then click components to take them down (F)").clicked() {
+                            action = "outage";
+                        }
+                        if first.down {
+                            ui.label(RichText::new("Marked down in the outage view").small().color(theme::RED));
+                        }
+                    }
                     if has(&[Kind::Node]) && self.sel.len() == 1 {
                         section(ui, "Notes");
                         let mut notes = first.notes.clone();
@@ -683,6 +706,7 @@ impl App {
             "dup" => self.duplicate(),
             "del" => self.delete_selected(),
             "layout" => self.auto_layout(false),
+            "outage" => self.run(ctx, "failures"),
             "save-boundary" => {
                 let b = CustomBoundary { name: node_text(&first.text).0.to_string(), icon: first.icon.clone(), color: first.style.stroke, dashed: first.style.dashed };
                 self.bound_editor = Some(BoundEditor { idx: None, b, query: String::new() });
