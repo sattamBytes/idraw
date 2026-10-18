@@ -1263,6 +1263,15 @@ impl App {
 
     fn canvas_input(&mut self, ctx: &Context, resp: &Response) {
         let v = self.view();
+        // where a click or tap was released: on touch screens egui drops the pointer the moment a
+        // finger lifts, so its own click position is often empty; the raw release event keeps it
+        let canvas = self.canvas;
+        let tap_at = ctx.input(|i| {
+            i.events.iter().rev().find_map(|e| match e {
+                egui::Event::PointerButton { pos, pressed: false, .. } if canvas.contains(*pos) => Some(*pos),
+                _ => None,
+            })
+        });
         let (mods, space, scroll, zd, hover) = ctx.input(|i| (i.modifiers, i.key_down(Key::Space), i.smooth_scroll_delta, i.zoom_delta(), i.pointer.hover_pos()));
         let space = space && !ctx.wants_keyboard_input();
         // panning by drag only with Space held or the middle button (two-finger scroll always pans)
@@ -1302,7 +1311,7 @@ impl App {
         // recording a scenario: clicks pick components in order
         if self.rec.is_some() {
             if resp.clicked() {
-                let w = v.s2w(resp.interact_pointer_pos().unwrap_or_default());
+                let w = v.s2w(tap_at.or(resp.interact_pointer_pos()).unwrap_or_default());
                 // components or existing connectors (incl. their labels)
                 let id = self.label_hit(ctx, w).or_else(|| self.doc.hit(w, 8.0 / self.zoom)).filter(|id| self.doc.get(*id).is_some_and(|e| e.kind == Kind::Arrow || e.bindable()));
                 if let (Some(id), Some((_, picks))) = (id, &mut self.rec) {
@@ -1324,15 +1333,7 @@ impl App {
         }
         // connector started by a click: it follows the mouse; the next click places it
         if let Some((id, src)) = self.pending_arrow {
-            // where the click/tap was released, read from the raw event: on touch screens the
-            // pointer is "gone" right after a finger lifts, so egui's own positions are empty
-            let canvas = self.canvas;
-            let released = ctx.input(|i| {
-                i.events.iter().rev().find_map(|e| match e {
-                    egui::Event::PointerButton { pos, pressed: false, .. } if canvas.contains(*pos) => Some(*pos),
-                    _ => None,
-                })
-            });
+            let released = tap_at;
             let placing = released.is_some() || resp.clicked() || resp.drag_stopped();
             // with no position at all (finger lifted, nothing new) the connector waits where it is
             let pos = released.or_else(|| ctx.input(|i| i.pointer.latest_pos())).or(hover);
@@ -1358,7 +1359,7 @@ impl App {
         // outage simulation: click a component to take it down / bring it back
         if self.failures {
             if resp.clicked() {
-                let w = v.s2w(resp.interact_pointer_pos().unwrap_or_default());
+                let w = v.s2w(tap_at.or(resp.interact_pointer_pos()).unwrap_or_default());
                 if let Some(id) = self.doc.hit_bindable(w, None) {
                     self.checkpoint();
                     if let Some(e) = self.doc.get_mut(id) {
@@ -1374,7 +1375,7 @@ impl App {
 
         // right-click: select what's under the pointer, then show the context menu
         if resp.secondary_clicked() {
-            let sp = resp.interact_pointer_pos().unwrap_or_default();
+            let sp = tap_at.or(resp.interact_pointer_pos()).unwrap_or_default();
             self.menu_at = sp;
             let w = v.s2w(sp);
             match self.label_hit(ctx, w).or_else(|| self.doc.hit(w, 6.0 / self.zoom)) {
@@ -1530,7 +1531,7 @@ impl App {
         }
 
         if resp.drag_stopped() {
-            let sp = resp.interact_pointer_pos().or(hover).unwrap_or_default();
+            let sp = tap_at.or(resp.interact_pointer_pos()).or(hover).unwrap_or_default();
             let w = v.s2w(sp);
             match std::mem::replace(&mut self.drag, Drag::None) {
                 Drag::Marquee(start) => {
@@ -1578,7 +1579,7 @@ impl App {
         }
 
         if resp.clicked() {
-            let sp = resp.interact_pointer_pos().unwrap_or_default();
+            let sp = tap_at.or(resp.interact_pointer_pos()).unwrap_or_default();
             let w = v.s2w(sp);
             if self.editing.is_some() {
                 self.finish_edit();
@@ -1633,7 +1634,7 @@ impl App {
         }
 
         if resp.double_clicked() {
-            let w = v.s2w(resp.interact_pointer_pos().unwrap_or_default());
+            let w = v.s2w(tap_at.or(resp.interact_pointer_pos()).unwrap_or_default());
             match self.label_hit(ctx, w).or_else(|| self.doc.hit(w, 6.0 / self.zoom)) {
                 Some(id) => self.start_edit(id),
                 None => self.create_text(w),
