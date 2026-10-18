@@ -1,6 +1,6 @@
 [package]
 name = "idraw"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/sattamBytes/idraw"
@@ -8,7 +8,7 @@ homepage = "https://github.com/sattamBytes/idraw"
 readme = "README.md"
 keywords = ["diagram", "drawing", "system-design", "macos", "excalidraw"]
 categories = ["graphics", "visualization"]
-description = "Modern open-source diagramming for macOS, built for system design"
+description = "The AI-first diagramming app for macOS: your agent draws, idraw makes it look designed and move"
 
 [dependencies]
 eframe = { version = "0.31", default-features = false, features = ["default_fonts", "glow", "persistence"] }
