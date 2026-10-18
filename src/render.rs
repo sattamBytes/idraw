@@ -178,7 +178,7 @@ pub fn draw_element(p: &Painter, ctx: &Context, doc: &Doc, e: &Element, v: &View
                 if has_icon {
                     size.x += isz + 6.0;
                 }
-                let (x, top, ax) = text_place(r, e.tpos, e.outside, size, LABEL_PAD);
+                let (x, top, ax) = place_label(e, size);
                 // glide labels between positions
                 let dx = ctx.animate_value_with_time(Id::new(("tx", e.id)), x - r.min.x, 0.18);
                 let dy = ctx.animate_value_with_time(Id::new(("ty", e.id)), top - r.min.y, 0.18);

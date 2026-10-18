@@ -209,7 +209,7 @@ fn element(o: &mut String, c: &Ctx, e: &Element) {
                 if has_icon {
                     size.x += isz + 6.0;
                 }
-                let (mut x, top, ax) = text_place(r, e.tpos, e.outside, size, LABEL_PAD);
+                let (mut x, top, ax) = place_label(e, size);
                 if has_icon {
                     let left = x - size.x * ax;
                     icon_svg(o, &e.icon, Rect::from_min_size(pos2(left, top + (s.font * LINE_H - isz) / 2.0), vec2(isz, isz)), stroke);

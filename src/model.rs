@@ -1357,9 +1357,33 @@ pub fn placed_icon_rect(e: &Element) -> Option<Rect> {
     if e.kind == Kind::Region || e.icon.is_empty() || icon_inline(e) {
         return None;
     }
-    let s = if e.text.trim().is_empty() { (e.rect.width().min(e.rect.height()) * 0.45).clamp(18.0, 72.0) } else { label_icon_size(e) * 1.2 };
-    let (x, top, ax) = text_place(e.rect, e.icon_pos.unwrap_or(TextPos::Center), false, vec2(s, s), LABEL_PAD);
+    let (inner, pad) = content_box(e);
+    let s = if e.text.trim().is_empty() { (inner.width().min(inner.height()) * 0.6).clamp(18.0, 72.0) } else { label_icon_size(e) * 1.2 };
+    let s = s.min(inner.width() - 2.0 * pad).min(inner.height() - 2.0 * pad).max(12.0);
+    let (x, top, ax) = text_place(inner, e.icon_pos.unwrap_or(TextPos::Center), false, vec2(s, s), pad);
     Some(Rect::from_min_size(pos2(x - s * ax, top), vec2(s, s)))
+}
+
+/// The area labels and icons are laid out in: the largest box that fits inside the shape
+/// (whole box for rectangles, inscribed rectangle for ellipses, inner half for diamonds),
+/// plus the padding to use inside it.
+pub fn content_box(e: &Element) -> (Rect, f32) {
+    let r = e.rect;
+    match e.kind {
+        Kind::Ellipse => (Rect::from_center_size(r.center(), r.size() * std::f32::consts::FRAC_1_SQRT_2), LABEL_PAD * 0.4),
+        Kind::Diamond => (Rect::from_center_size(r.center(), r.size() * 0.5), LABEL_PAD * 0.25),
+        _ => (r, LABEL_PAD),
+    }
+}
+
+/// Where a shape's label is placed: inside its content box, or around its outer edge.
+pub fn place_label(e: &Element, size: Vec2) -> (f32, f32, f32) {
+    let (inner, pad) = content_box(e);
+    if e.outside && e.tpos != TextPos::Center {
+        text_place(e.rect, e.tpos, true, size, LABEL_PAD)
+    } else {
+        text_place(inner, e.tpos, false, size, pad)
+    }
 }
 
 pub struct NodeLayout {

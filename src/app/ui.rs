@@ -1567,8 +1567,9 @@ impl App {
             }
             _ => {
                 let m = render::measure(ctx, &e.text, e.style.font, hand);
-                let (x, top, ax) = text_place(r, e.tpos, e.outside, m, LABEL_PAD);
-                let w = if e.outside && e.tpos.fx() != 0.5 { m.x + 60.0 } else { (r.width() - 2.0 * LABEL_PAD).max(60.0) };
+                let (x, top, ax) = place_label(&e, m);
+                let (inner, pad) = content_box(&e);
+                let w = if e.outside && e.tpos.fx() != 0.5 { m.x + 60.0 } else { (inner.width() - 2.0 * pad).max(60.0) };
                 let left = x - w * ax + if icon_inline(&e) { label_icon_size(&e) + 6.0 } else { 0.0 };
                 let align = if ax == 0.0 {
                     Align::Min
