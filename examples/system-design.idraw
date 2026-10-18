@@ -1,0 +1,694 @@
+{
+ "elements": [
+  {
+   "id": 1,
+   "kind": "Region",
+   "rect": {
+    "min": {
+     "x": 300,
+     "y": 60
+    },
+    "max": {
+     "x": 1080,
+     "y": 540
+    }
+   },
+   "text": "VPC \u00b7 us-east-1",
+   "icon": "",
+   "points": [],
+   "from": {
+    "id": null,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "to": {
+    "id": null,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "style": {
+    "stroke": [
+     99,
+     102,
+     241,
+     255
+    ],
+    "fill": [
+     6,
+     6,
+     14,
+     15
+    ],
+    "width": 1.5,
+    "dashed": true,
+    "round": true,
+    "font": 13.0,
+    "route": "Elbow",
+    "head_start": false,
+    "head_end": true,
+    "flow": "None"
+   }
+  },
+  {
+   "id": 2,
+   "kind": "Node",
+   "rect": {
+    "min": {
+     "x": 56,
+     "y": 272
+    },
+    "max": {
+     "x": 224,
+     "y": 328
+    }
+   },
+   "text": "Users\nweb + mobile",
+   "icon": "user",
+   "points": [],
+   "from": {
+    "id": null,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "to": {
+    "id": null,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "style": {
+    "stroke": [
+     79,
+     70,
+     229,
+     255
+    ],
+    "fill": [
+     255,
+     255,
+     255,
+     255
+    ],
+    "width": 2.0,
+    "dashed": false,
+    "round": true,
+    "font": 18.0,
+    "route": "Elbow",
+    "head_start": false,
+    "head_end": true,
+    "flow": "None"
+   }
+  },
+  {
+   "id": 3,
+   "kind": "Node",
+   "rect": {
+    "min": {
+     "x": 356,
+     "y": 272
+    },
+    "max": {
+     "x": 524,
+     "y": 328
+    }
+   },
+   "text": "API Gateway\nREST \u00b7 auth",
+   "icon": "gateway",
+   "points": [],
+   "from": {
+    "id": null,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "to": {
+    "id": null,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "style": {
+    "stroke": [
+     124,
+     58,
+     237,
+     255
+    ],
+    "fill": [
+     255,
+     255,
+     255,
+     255
+    ],
+    "width": 2.0,
+    "dashed": false,
+    "round": true,
+    "font": 18.0,
+    "route": "Elbow",
+    "head_start": false,
+    "head_end": true,
+    "flow": "None"
+   }
+  },
+  {
+   "id": 4,
+   "kind": "Node",
+   "rect": {
+    "min": {
+     "x": 616,
+     "y": 152
+    },
+    "max": {
+     "x": 784,
+     "y": 208
+    }
+   },
+   "text": "Orders service\nRust \u00b7 3 replicas",
+   "icon": "service",
+   "points": [],
+   "from": {
+    "id": null,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "to": {
+    "id": null,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "style": {
+    "stroke": [
+     22,
+     163,
+     74,
+     255
+    ],
+    "fill": [
+     255,
+     255,
+     255,
+     255
+    ],
+    "width": 2.0,
+    "dashed": false,
+    "round": true,
+    "font": 18.0,
+    "route": "Elbow",
+    "head_start": false,
+    "head_end": true,
+    "flow": "None"
+   }
+  },
+  {
+   "id": 5,
+   "kind": "Node",
+   "rect": {
+    "min": {
+     "x": 616,
+     "y": 392
+    },
+    "max": {
+     "x": 784,
+     "y": 448
+    }
+   },
+   "text": "Payments\ngRPC",
+   "icon": "service",
+   "points": [],
+   "from": {
+    "id": null,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "to": {
+    "id": null,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "style": {
+    "stroke": [
+     22,
+     163,
+     74,
+     255
+    ],
+    "fill": [
+     255,
+     255,
+     255,
+     255
+    ],
+    "width": 2.0,
+    "dashed": false,
+    "round": true,
+    "font": 18.0,
+    "route": "Elbow",
+    "head_start": false,
+    "head_end": true,
+    "flow": "None"
+   }
+  },
+  {
+   "id": 6,
+   "kind": "Node",
+   "rect": {
+    "min": {
+     "x": 876,
+     "y": 152
+    },
+    "max": {
+     "x": 1044,
+     "y": 208
+    }
+   },
+   "text": "Postgres\nprimary + replica",
+   "icon": "database",
+   "points": [],
+   "from": {
+    "id": null,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "to": {
+    "id": null,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "style": {
+    "stroke": [
+     220,
+     38,
+     38,
+     255
+    ],
+    "fill": [
+     255,
+     255,
+     255,
+     255
+    ],
+    "width": 2.0,
+    "dashed": false,
+    "round": true,
+    "font": 18.0,
+    "route": "Elbow",
+    "head_start": false,
+    "head_end": true,
+    "flow": "None"
+   }
+  },
+  {
+   "id": 7,
+   "kind": "Node",
+   "rect": {
+    "min": {
+     "x": 876,
+     "y": 392
+    },
+    "max": {
+     "x": 1044,
+     "y": 448
+    }
+   },
+   "text": "Kafka\norders.events",
+   "icon": "stream",
+   "points": [],
+   "from": {
+    "id": null,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "to": {
+    "id": null,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "style": {
+    "stroke": [
+     217,
+     119,
+     6,
+     255
+    ],
+    "fill": [
+     255,
+     255,
+     255,
+     255
+    ],
+    "width": 2.0,
+    "dashed": false,
+    "round": true,
+    "font": 18.0,
+    "route": "Elbow",
+    "head_start": false,
+    "head_end": true,
+    "flow": "None"
+   }
+  },
+  {
+   "id": 8,
+   "kind": "Arrow",
+   "rect": {
+    "min": {
+     "x": 0,
+     "y": 0
+    },
+    "max": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "text": "HTTPS",
+   "icon": "",
+   "points": [],
+   "from": {
+    "id": 2,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "to": {
+    "id": 3,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "style": {
+    "stroke": [
+     99,
+     102,
+     241,
+     255
+    ],
+    "fill": [
+     0,
+     0,
+     0,
+     0
+    ],
+    "width": 2.0,
+    "dashed": false,
+    "round": true,
+    "font": 18.0,
+    "route": "Elbow",
+    "head_start": false,
+    "head_end": true,
+    "flow": "Dots"
+   }
+  },
+  {
+   "id": 9,
+   "kind": "Arrow",
+   "rect": {
+    "min": {
+     "x": 0,
+     "y": 0
+    },
+    "max": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "text": "",
+   "icon": "",
+   "points": [],
+   "from": {
+    "id": 3,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "to": {
+    "id": 4,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "style": {
+    "stroke": [
+     99,
+     102,
+     241,
+     255
+    ],
+    "fill": [
+     0,
+     0,
+     0,
+     0
+    ],
+    "width": 2.0,
+    "dashed": false,
+    "round": true,
+    "font": 18.0,
+    "route": "Elbow",
+    "head_start": false,
+    "head_end": true,
+    "flow": "Dots"
+   }
+  },
+  {
+   "id": 10,
+   "kind": "Arrow",
+   "rect": {
+    "min": {
+     "x": 0,
+     "y": 0
+    },
+    "max": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "text": "",
+   "icon": "",
+   "points": [],
+   "from": {
+    "id": 3,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "to": {
+    "id": 5,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "style": {
+    "stroke": [
+     99,
+     102,
+     241,
+     255
+    ],
+    "fill": [
+     0,
+     0,
+     0,
+     0
+    ],
+    "width": 2.0,
+    "dashed": false,
+    "round": true,
+    "font": 18.0,
+    "route": "Elbow",
+    "head_start": false,
+    "head_end": true,
+    "flow": "Dots"
+   }
+  },
+  {
+   "id": 11,
+   "kind": "Arrow",
+   "rect": {
+    "min": {
+     "x": 0,
+     "y": 0
+    },
+    "max": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "text": "SQL",
+   "icon": "",
+   "points": [],
+   "from": {
+    "id": 4,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "to": {
+    "id": 6,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "style": {
+    "stroke": [
+     99,
+     102,
+     241,
+     255
+    ],
+    "fill": [
+     0,
+     0,
+     0,
+     0
+    ],
+    "width": 2.0,
+    "dashed": false,
+    "round": true,
+    "font": 18.0,
+    "route": "Elbow",
+    "head_start": false,
+    "head_end": true,
+    "flow": "None"
+   }
+  },
+  {
+   "id": 12,
+   "kind": "Arrow",
+   "rect": {
+    "min": {
+     "x": 0,
+     "y": 0
+    },
+    "max": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "text": "publish",
+   "icon": "",
+   "points": [],
+   "from": {
+    "id": 4,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "to": {
+    "id": 7,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "style": {
+    "stroke": [
+     99,
+     102,
+     241,
+     255
+    ],
+    "fill": [
+     0,
+     0,
+     0,
+     0
+    ],
+    "width": 2.0,
+    "dashed": false,
+    "round": true,
+    "font": 18.0,
+    "route": "Elbow",
+    "head_start": false,
+    "head_end": true,
+    "flow": "Dashes"
+   }
+  },
+  {
+   "id": 13,
+   "kind": "Arrow",
+   "rect": {
+    "min": {
+     "x": 0,
+     "y": 0
+    },
+    "max": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "text": "",
+   "icon": "",
+   "points": [],
+   "from": {
+    "id": 5,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "to": {
+    "id": 7,
+    "p": {
+     "x": 0,
+     "y": 0
+    }
+   },
+   "style": {
+    "stroke": [
+     99,
+     102,
+     241,
+     255
+    ],
+    "fill": [
+     0,
+     0,
+     0,
+     0
+    ],
+    "width": 2.0,
+    "dashed": false,
+    "round": true,
+    "font": 18.0,
+    "route": "Elbow",
+    "head_start": false,
+    "head_end": true,
+    "flow": "Dashes"
+   }
+  }
+ ],
+ "next_id": 13
+}
