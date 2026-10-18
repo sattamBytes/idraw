@@ -52,14 +52,17 @@ fn tapped(ui: &Ui, r: &Response) -> bool {
     if r.is_pointer_button_down_on() {
         ui.ctx().data_mut(|d| d.insert_temp(down_here, true));
     }
-    let released = ui.input(|i| {
-        i.events.iter().rev().find_map(|e| match e {
+    let (pressed_here, released) = ui.input(|i| {
+        let pressed_here = i.events.iter().any(|e| matches!(e, egui::Event::PointerButton { pos, pressed: true, .. } if r.rect.contains(*pos)));
+        let released = i.events.iter().rev().find_map(|e| match e {
             egui::Event::PointerButton { pos, pressed: false, .. } => Some(*pos),
             _ => None,
-        })
+        });
+        (pressed_here, released)
     });
     let Some(pos) = released else { return false };
-    let was_down = ui.ctx().data_mut(|d| d.remove_temp::<bool>(down_here)).unwrap_or(false);
+    // a quick tap can deliver press and release in the same frame
+    let was_down = ui.ctx().data_mut(|d| d.remove_temp::<bool>(down_here)).unwrap_or(false) || pressed_here;
     was_down && r.rect.contains(pos)
 }
 
