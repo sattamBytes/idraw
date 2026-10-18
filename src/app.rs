@@ -1449,6 +1449,8 @@ impl App {
                 }
                 Drag::Bend(id) => {
                     let id = *id;
+                    // snap onto the line between the shapes so it's easy to get it dead straight
+                    let w = self.doc.get(id).map_or(w, |e| self.doc.snap_bend(e, w, 10.0 / self.zoom));
                     if let Some(e) = self.doc.get_mut(id) {
                         e.bend = Some(w);
                     }

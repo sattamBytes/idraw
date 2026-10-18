@@ -574,6 +574,26 @@ impl Doc {
         }
     }
 
+    /// Pulls a bend point within `tol` of an end's centre line (or pinned spot) onto it,
+    /// so a nearly straight connector comes out exactly straight instead of with a tiny jog.
+    pub fn snap_bend(&self, e: &Element, mut m: Pos2, tol: f32) -> Pos2 {
+        let mut pts = vec![];
+        for end in [&e.from, &e.to] {
+            let (r, k) = self.end_rect(end);
+            pts.push(r.center());
+            if let (Some(i), Some(_)) = (end.side, k) {
+                pts.push(side_point(r, i));
+            }
+        }
+        if let Some(q) = pts.iter().filter(|q| (q.y - m.y).abs() < tol).min_by(|a, b| (a.y - m.y).abs().total_cmp(&(b.y - m.y).abs())) {
+            m.y = q.y;
+        }
+        if let Some(q) = pts.iter().filter(|q| (q.x - m.x).abs() < tol).min_by(|a, b| (a.x - m.x).abs().total_cmp(&(b.x - m.x).abs())) {
+            m.x = q.x;
+        }
+        m
+    }
+
     /// Polyline corners of an arrow (before rounding / curving). Elbows avoid other shapes.
     pub fn arrow_corners(&self, e: &Element) -> Vec<Pos2> {
         let (a, ka) = self.end_rect(&e.from);
@@ -615,7 +635,7 @@ impl Doc {
         let p = match e.bend {
             // two automatic legs joined at the user's bend point
             Some(m) => {
-                let pt = Rect::from_center_size(m, Vec2::ZERO);
+                let pt = Rect::from_center_size(self.snap_bend(e, m, 6.0), Vec2::ZERO);
                 let mut p = route(a, ka.is_some(), pt, false, &obstacles, fa, pt, None, pa, None);
                 let back = (p.len() >= 2).then(|| (p[p.len() - 1] - p[p.len() - 2]).normalized());
                 p.pop();
@@ -1788,6 +1808,20 @@ mod tests {
             let p = d.arrow_path(d.get(ar).unwrap());
             assert!(dist_to_path(&p, pos2(250., 150.)) < 3.0, "{route:?} passes near bend");
         }
+    }
+
+    #[test]
+    fn near_aligned_bend_routes_straight() {
+        let mut d = Doc::default();
+        let a = d.add(rect_el(0., 0.));
+        let b = d.add(rect_el(400., 0.));
+        let mut arr = Element::new(Kind::Arrow, Rect::ZERO);
+        arr.from.id = Some(a);
+        arr.to.id = Some(b);
+        arr.bend = Some(pos2(250., 27.7)); // centres are at y = 25
+        let ar = d.add(arr);
+        let p = d.arrow_corners(d.get(ar).unwrap());
+        assert!(p.iter().all(|q| (q.y - 25.0).abs() < 0.01), "no jog: {p:?}");
     }
 
     #[test]
