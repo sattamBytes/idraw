@@ -32,7 +32,7 @@ fn props_empty(ui: &mut Ui, locked: bool) {
     section(ui, "Nothing selected");
     ui.label(RichText::new("Select a shape, icon or connector to style it here.").size(12.0).color(theme::muted()));
     ui.add_space(12.0);
-    for (k, what) in [("Double-click", "edit text"), ("Drag a dot", "connect"), ("Space + drag", "pan"), ("⌘K", "all commands"), ("L", "components"), ("⌘/", "diagram as code")] {
+    for (k, what) in [("Double-click", "edit text"), ("Drag a dot", "connect"), ("Drag blank", "pan"), ("⇧ + drag", "box-select"), ("⌘K", "all commands"), ("L", "components"), ("⌘/", "diagram as code")] {
         ui.horizontal(|ui| {
             Frame::new().fill(theme::hover()).corner_radius(5).inner_margin(Margin::symmetric(6, 2)).show(ui, |ui| ui.label(RichText::new(k).size(11.5).color(theme::text())));
             ui.label(RichText::new(what).size(12.0).color(theme::muted()));

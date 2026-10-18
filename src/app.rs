@@ -1046,7 +1046,13 @@ impl App {
         }
         let w = self.view().s2w(h);
         let inside_selected_region = self.sel.iter().any(|id| self.doc.get(*id).is_some_and(|e| e.kind == Kind::Region && e.rect.contains(w)));
-        if self.doc.hit(w, 6.0 / self.zoom).is_some() || inside_selected_region { C::Move } else { C::Default }
+        if self.doc.hit(w, 6.0 / self.zoom).is_some() || inside_selected_region {
+            C::Move
+        } else if self.in_region(w) {
+            C::Default
+        } else {
+            C::Grab
+        }
     }
 
     /// Shape (and side, if a side dot is under the pointer) a connector end would attach to.
@@ -1159,12 +1165,19 @@ impl App {
             }
             self.checkpoint();
             self.drag = Drag::Move { start: w, orig: self.doc.elements.iter().filter(|e| self.sel.contains(&e.id)).cloned().collect(), moved: false };
-        } else {
+        } else if shift || self.in_region(w) {
             if !shift {
                 self.sel.clear();
             }
             self.drag = Drag::Marquee(w);
+        } else {
+            // blank canvas pans; Shift+drag (or starting inside a boundary) box-selects
+            self.drag = Drag::Pan;
         }
+    }
+
+    fn in_region(&self, w: Pos2) -> bool {
+        self.doc.elements.iter().any(|e| e.kind == Kind::Region && e.rect.contains(w))
     }
 
     fn snap(&mut self, moving: Rect, delta: Vec2, exclude: &[u64]) -> Vec2 {
