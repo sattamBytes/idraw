@@ -60,6 +60,31 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>LSApplicationCategoryType</key><string>public.app-category.graphics-design</string>
+  <!-- .idraw files: Finder shows idraw under "Open With" and double-click opens them -->
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key><string>idraw diagram</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Owner</string>
+      <key>CFBundleTypeIconFile</key><string>idraw</string>
+      <key>LSItemContentTypes</key><array><string>dev.idraw.diagram</string></array>
+    </dict>
+  </array>
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key><string>dev.idraw.diagram</string>
+      <key>UTTypeDescription</key><string>idraw diagram</string>
+      <key>UTTypeIconFile</key><string>idraw</string>
+      <key>UTTypeConformsTo</key><array><string>public.json</string><string>public.data</string></array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key><array><string>idraw</string></array>
+        <key>public.mime-type</key><array><string>application/vnd.idraw+json</string></array>
+      </dict>
+    </dict>
+  </array>
 </dict>
 </plist>
 EOF
@@ -81,6 +106,8 @@ if [[ $INSTALL == 1 ]]; then
   rm -rf "$HOME/Applications/idraw.app"
   cp -R "$APP" "$HOME/Applications/"
   echo "Installed to ~/Applications/idraw.app"
+  # register the .idraw document type with Finder right away
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$HOME/Applications/idraw.app" || true
   # command line (idraw render / check / icons) for scripts and AI agents
   mkdir -p "$HOME/.local/bin"
   ln -sf "$HOME/Applications/idraw.app/Contents/MacOS/idraw" "$HOME/.local/bin/idraw"

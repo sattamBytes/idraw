@@ -3,6 +3,7 @@ mod cli;
 mod code;
 mod collab;
 mod export;
+mod finder;
 mod icons;
 mod import;
 mod layout;
@@ -51,6 +52,7 @@ fn main() -> eframe::Result {
     if let Some(code) = cli::run() {
         std::process::exit(code);
     }
+    finder::install();
     let opts = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("idraw")

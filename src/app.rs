@@ -238,6 +238,7 @@ pub struct App {
 impl App {
     pub fn new(cc: &eframe::CreationContext) -> Self {
         crate::setup_fonts(&cc.egui_ctx);
+        crate::finder::set_ctx(&cc.egui_ctx);
         let st = cc.storage;
         let dark = st.and_then(|s| s.get_string("dark")).map(|v| v == "1").unwrap_or_else(|| cc.egui_ctx.system_theme() == Some(egui::Theme::Dark));
         setup_style(&cc.egui_ctx, dark);
@@ -809,6 +810,14 @@ impl App {
 
     fn open(&mut self, ctx: &Context) {
         let Some(p) = rfd::FileDialog::new().add_filter("idraw", &["idraw", "json"]).pick_file() else { return };
+        self.open_path(ctx, p);
+    }
+
+    /// Loads a diagram, replacing the current one (still reachable with ⌘Z).
+    fn open_path(&mut self, ctx: &Context, p: PathBuf) {
+        if self.dirty && self.path.is_some() {
+            self.save(ctx, false);
+        }
         match load(&p) {
             Ok(d) => {
                 self.checkpoint();
@@ -1810,6 +1819,10 @@ impl eframe::App for App {
             self.title = title;
         }
 
+        // files opened from Finder (double-click / Open With)
+        if let Some(p) = crate::finder::take().pop() {
+            self.open_path(ctx, p);
+        }
         self.shortcuts(ctx);
         self.step_anim(now);
         self.autosave_tick(ctx, now);

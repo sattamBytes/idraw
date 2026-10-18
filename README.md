@@ -45,6 +45,8 @@ brew info --cask sattamBytes/tap/idraw          # shows the installed version
 
 **Or download** the latest `idraw-…-macos-universal.zip` from [Releases](https://github.com/sattamBytes/idraw/releases/latest), unzip it, and drag **idraw.app** into Applications.
 
+Double-click any `.idraw` file (or right-click → **Open With → idraw**) to open it. If Finder doesn't offer idraw yet, open the app once so macOS registers it.
+
 > **First launch:** idraw isn't notarized by Apple yet, so macOS may say it "can't be opened". Right-click idraw.app and choose **Open**, then **Open** again. You only have to do this once. Homebrew installs skip this step.
 
 **Or build from source** (Rust 1.85+):
