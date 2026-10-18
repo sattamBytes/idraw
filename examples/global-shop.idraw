@@ -1,0 +1,64 @@
+{
+  "elements": [
+    { "kind": "text", "text": "Global shop: how an order flows", "x": 40, "y": 20, "font": "xl", "face": "serif" },
+    { "kind": "text", "text": "Edge → load balancer → Kubernetes services → data, with async events and a warm standby region", "x": 40, "y": 72, "stroke": "#64748b" },
+
+    { "kind": "region", "preset": "cloud", "title": "AWS · us-east-1", "x": 560, "y": 140, "w": 920, "h": 700 },
+    { "kind": "region", "preset": "vpc", "title": "Production VPC", "x": 580, "y": 200, "w": 880, "h": 620 },
+    { "kind": "region", "preset": "k8s", "title": "EKS cluster", "x": 860, "y": 230, "w": 256, "h": 360 },
+    { "kind": "region", "preset": "edge", "title": "Edge", "x": 280, "y": 200, "w": 240, "h": 400 },
+    { "kind": "region", "preset": "region", "title": "AWS · us-west-2 · warm standby", "x": 560, "y": 880, "w": 920, "h": 140 },
+
+    { "kind": "node", "id": "mobile", "icon": "mobile", "title": "Shoppers", "subtitle": "iOS · Android", "x": 40, "y": 260 },
+    { "kind": "node", "id": "web", "icon": "laptop", "title": "Web store", "subtitle": "Next.js", "x": 40, "y": 380 },
+
+    { "kind": "node", "id": "dns", "icon": "aws-route53", "title": "Route 53", "subtitle": "geo DNS", "x": 312, "y": 260 },
+    { "kind": "node", "id": "cdn", "icon": "aws-cloudfront", "title": "CloudFront", "subtitle": "static + API", "x": 312, "y": 380 },
+    { "kind": "node", "id": "waf", "icon": "aws-waf", "title": "WAF", "subtitle": "bots · rate limits", "x": 312, "y": 500 },
+
+    { "kind": "node", "id": "alb", "icon": "aws-elb", "title": "ALB", "subtitle": "path routing", "x": 620, "y": 380 },
+    { "kind": "node", "id": "mon", "icon": "aws-cloudwatch", "title": "CloudWatch", "subtitle": "health checks", "x": 620, "y": 540 },
+
+    { "kind": "node", "id": "orders", "icon": "aws-eks", "title": "Orders", "subtitle": "Go · 6 pods", "x": 900, "y": 270, "replicas": 3 },
+    { "kind": "node", "id": "catalog", "icon": "aws-eks", "title": "Catalog", "subtitle": "Kotlin", "x": 900, "y": 380 },
+    { "kind": "node", "id": "cart", "icon": "aws-eks", "title": "Cart", "subtitle": "Node.js", "x": 900, "y": 490 },
+
+    { "kind": "node", "id": "db", "icon": "aws-rds", "title": "Aurora Postgres", "subtitle": "primary", "x": 1200, "y": 270 },
+    { "kind": "node", "id": "search", "icon": "aws-opensearch", "title": "OpenSearch", "subtitle": "product search", "x": 1200, "y": 380 },
+    { "kind": "node", "id": "cache", "icon": "aws-elasticache", "title": "ElastiCache", "subtitle": "carts · sessions", "x": 1200, "y": 490 },
+
+    { "kind": "node", "id": "bus", "icon": "aws-msk", "title": "Order events", "subtitle": "MSK · Kafka", "x": 900, "y": 700 },
+    { "kind": "node", "id": "notify", "icon": "bell", "title": "Notifications", "subtitle": "email · push", "x": 1200, "y": 660 },
+    { "kind": "node", "id": "fraud", "icon": "sparkles", "title": "Fraud scoring", "subtitle": "ML model", "x": 1200, "y": 740 },
+
+    { "kind": "node", "id": "pay", "icon": "service", "title": "Payments", "subtitle": "card processor", "x": 1540, "y": 160 },
+
+    { "kind": "node", "id": "replica", "icon": "aws-rds", "title": "Aurora replica", "subtitle": "read-only", "x": 1200, "y": 920 },
+    { "kind": "node", "id": "dw", "icon": "aws-redshift", "title": "Redshift", "subtitle": "analytics", "x": 900, "y": 920 },
+
+    { "kind": "edge", "from": "mobile", "to": "dns", "text": "resolve", "pattern": "dotted", "stroke": "#64748b" },
+    { "kind": "edge", "from": "mobile", "to": "cdn", "flow": "request" },
+    { "kind": "edge", "from": "web", "to": "cdn", "text": "3.2k rps", "flow": "request", "stroke": "#2563eb" },
+    { "kind": "edge", "from": {"id": "waf", "side": "top"}, "to": {"id": "cdn", "side": "bottom"}, "text": "filters", "pattern": "dotted", "stroke": "#64748b", "head_end": false },
+    { "kind": "edge", "from": "cdn", "to": "alb", "text": "HTTPS", "flow": "request", "stroke": "#2563eb" },
+    { "kind": "edge", "from": "alb", "to": "orders", "flow": "request", "stroke": "#2563eb", "text": "/orders" },
+    { "kind": "edge", "from": "alb", "to": "catalog", "flow": "request", "stroke": "#2563eb" },
+    { "kind": "edge", "from": "alb", "to": "cart", "flow": "request", "stroke": "#2563eb" },
+    { "kind": "edge", "from": {"id": "mon", "side": "top"}, "to": {"id": "alb", "side": "bottom"}, "flow": "heartbeat", "stroke": "#15803d" },
+
+    { "kind": "edge", "from": {"id": "orders", "side": "right"}, "to": {"id": "db", "side": "left"}, "text": "SQL", "flow": "request", "stroke": "#0f766e" },
+    { "kind": "edge", "from": "catalog", "to": "search", "flow": "request", "stroke": "#0f766e" },
+    { "kind": "edge", "from": "cart", "to": "cache", "flow": "request", "stroke": "#0f766e" },
+    { "kind": "edge", "from": {"id": "orders", "side": "top"}, "to": {"id": "pay", "side": "left"}, "text": "charge", "flow": "errors" },
+
+    { "kind": "edge", "from": {"id": "orders", "side": "left"}, "to": {"id": "bus", "side": "left"}, "label_t": 0.88, "text": "OrderPlaced", "flow": "async", "stroke": "#c2410c" },
+    { "kind": "edge", "from": "bus", "to": "notify", "flow": "fanout", "stroke": "#c2410c" },
+    { "kind": "edge", "from": "bus", "to": "fraud", "flow": "fanout", "stroke": "#c2410c" },
+
+    { "kind": "edge", "from": {"id": "db", "side": "right"}, "to": {"id": "replica", "side": "right"}, "text": "replication", "flow": "stream", "pattern": "double", "stroke": "#7c3aed", "label_t": 0.86 },
+    { "kind": "edge", "from": "replica", "to": "dw", "text": "nightly ETL", "flow": "batch", "stroke": "#0369a1" },
+
+    { "kind": "sticky", "text": "p99 checkout\n< 300 ms", "x": 640, "y": 660, "w": 150, "h": 96, "face": "hand", "fill": "#dcfce7" },
+    { "kind": "sticky", "text": "Promote the standby\nin < 5 min", "x": 300, "y": 900, "w": 200, "h": 100, "face": "hand" }
+  ]
+}

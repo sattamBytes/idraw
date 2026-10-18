@@ -13,7 +13,7 @@ Excalidraw's simplicity, draw.io's depth, plus animated request flows you can ex
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e" alt="MIT"></a>
 </p>
 
-<p align="center"><img src="docs/flow.gif" alt="A request flow playing through a hybrid-cloud diagram" width="820"></p>
+<p align="center"><img src="docs/flow.gif" alt="Animated e-commerce architecture: requests and replies, async events, fan-out, replication and a nightly batch" width="900"></p>
 
 ## Install
 
@@ -42,7 +42,22 @@ git clone https://github.com/sattamBytes/idraw && cd idraw
 scripts/bundle.sh --install   # builds idraw.app into ~/Applications
 ```
 
-<p align="center"><img src="docs/hero.png" alt="Hybrid-cloud system design diagram made in idraw" width="820"></p>
+## Gallery
+
+Every diagram below is a plain `.idraw` file in [`examples/`](examples). Open one in idraw to play the animations, or render it with `idraw render`. They were written by an AI agent using the [idraw skill](#install-the-idraw-skill-in-your-ai-agent).
+
+<p align="center"><img src="docs/hero-dark.png" alt="Global e-commerce architecture in dark mode" width="900"></p>
+
+<table>
+<tr>
+<td width="50%"><img src="docs/ai-agent.png" alt="AI support agent with RAG, drawn in hand-drawn sketch style"><br><b>AI support agent with RAG</b>: sketch style · <a href="examples/ai-support-agent.idraw">file</a></td>
+<td width="50%"><img src="docs/ride-hailing.png" alt="Real-time ride hailing architecture in dark mode"><br><b>Real-time ride hailing</b>: dark mode · <a href="examples/ride-hailing.idraw">file</a></td>
+</tr>
+</table>
+
+**Animations that mean something.** Each one says how two systems talk: a request with its reply, fire-and-forget messages, fan-out to every subscriber, load-balanced turns, heartbeats, and requests that fail.
+
+<p align="center"><img src="docs/animations.gif" alt="Legend of idraw's flow animations: request/reply, async, heartbeat, errors, load balanced, fan-out, batch" width="820"></p>
 
 ## For AI agents and scripts
 
@@ -100,7 +115,7 @@ The agent also needs the `idraw` command on its PATH (Homebrew sets this up). Se
 - **Notes** on components (shown on hover, or under the card), **replicas** (×N stacked cards) and **capacity math** (QPS, payload, retention → bandwidth, storage, $/month)
 
 **Animate & tell the story**
-- **Flow animation** on connectors (packets or marching dashes), at Slow / Normal / Fast speed
+- **Flow animations by meaning**: request → reply, async message, stream, batch, fan-out (pub/sub), load balanced (round robin), heartbeat, some fail, at Slow / Normal / Fast speed
 - **Traffic-weighted edges**: label a connector "1.2k rps" and it gets thicker and faster
 - **Scenarios**: record a request path by clicking components, add captions, then play it back with a travelling packet and pulses, or export it as a GIF
 - **Outage simulation** (F): click components to take them down. Their connections stop, and **backup paths** take over
@@ -135,7 +150,7 @@ Names like S3, Lambda, BigQuery or Postgres get their icon automatically. Renami
 ## Development
 
 ```bash
-cargo run --release -- examples/hybrid-cloud.idraw   # run with a sample diagram
+cargo run --release -- examples/global-shop.idraw    # run with a sample diagram
 cargo test                                            # unit tests
 scripts/bundle.sh --universal                         # universal idraw.app + release zip in dist/
 ```

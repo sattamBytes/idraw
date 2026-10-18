@@ -1,0 +1,45 @@
+{
+  "elements": [
+    { "kind": "text", "text": "Real-time ride hailing", "x": 40, "y": 20, "font": "xl", "face": "serif" },
+    { "kind": "text", "text": "Drivers stream GPS, the matcher spreads work across dispatchers, and every trip event fans out", "x": 40, "y": 72, "stroke": "#94a3b8" },
+
+    { "kind": "region", "preset": "k8s", "title": "Realtime cluster", "x": 300, "y": 150, "w": 900, "h": 500 },
+    { "kind": "region", "preset": "app", "title": "Trip pipeline", "x": 300, "y": 690, "w": 1220, "h": 150 },
+
+    { "kind": "node", "id": "rider", "icon": "mobile", "title": "Rider app", "subtitle": "request a ride", "x": 40, "y": 220 },
+    { "kind": "node", "id": "driver", "icon": "mobile", "title": "Driver app", "subtitle": "GPS every 2 s", "x": 40, "y": 440 },
+
+    { "kind": "node", "id": "ws", "icon": "gateway", "title": "WebSocket edge", "subtitle": "1M connections", "x": 340, "y": 330 },
+    { "kind": "node", "id": "loc", "icon": "service", "title": "Location service", "subtitle": "ingest + smooth", "x": 640, "y": 440 },
+    { "kind": "node", "id": "geo", "icon": "oss-redis", "title": "Geo index", "subtitle": "Redis GEO", "x": 960, "y": 440 },
+    { "kind": "node", "id": "match", "icon": "sparkles", "title": "Matcher", "subtitle": "ETA + surge", "x": 640, "y": 220 },
+    { "kind": "node", "id": "presence", "icon": "chart", "title": "Presence", "subtitle": "who is online", "x": 640, "y": 560 },
+
+    { "kind": "node", "id": "d1", "icon": "server", "title": "Dispatch 1", "x": 960, "y": 180 },
+    { "kind": "node", "id": "d2", "icon": "server", "title": "Dispatch 2", "x": 960, "y": 260 },
+    { "kind": "node", "id": "d3", "icon": "server", "title": "Dispatch 3", "x": 960, "y": 340 },
+
+    { "kind": "node", "id": "kafka", "icon": "oss-kafka", "title": "Trip events", "subtitle": "Kafka", "x": 340, "y": 740 },
+    { "kind": "node", "id": "bill", "icon": "service", "title": "Billing", "subtitle": "fare + payout", "x": 660, "y": 740 },
+    { "kind": "node", "id": "push", "icon": "bell", "title": "Notifications", "subtitle": "driver arriving", "x": 960, "y": 740 },
+    { "kind": "node", "id": "lake", "icon": "aws-s3", "title": "Data lake", "subtitle": "pricing models", "x": 1280, "y": 740 },
+
+    { "kind": "edge", "from": "rider", "to": "ws", "text": "book", "label_t": 0.25, "flow": "request", "stroke": "#60a5fa" },
+    { "kind": "edge", "from": "driver", "to": "ws", "text": "GPS", "flow": "stream", "stroke": "#34d399" },
+    { "kind": "edge", "from": {"id": "ws", "side": "right"}, "to": {"id": "match", "side": "left"}, "flow": "request", "stroke": "#60a5fa" },
+    { "kind": "edge", "from": {"id": "ws", "side": "right"}, "to": {"id": "loc", "side": "left"}, "flow": "stream", "stroke": "#34d399" },
+    { "kind": "edge", "from": "loc", "to": "geo", "text": "upsert", "flow": "stream", "stroke": "#34d399" },
+    { "kind": "edge", "from": {"id": "match", "side": "bottom"}, "to": {"id": "loc", "side": "top"}, "text": "nearby drivers", "flow": "request", "stroke": "#60a5fa" },
+    { "kind": "edge", "from": "match", "to": "d1", "flow": "balanced", "stroke": "#a78bfa", "text": "round robin", "label_t": 0.8 },
+    { "kind": "edge", "from": "match", "to": "d2", "flow": "balanced", "stroke": "#a78bfa" },
+    { "kind": "edge", "from": "match", "to": "d3", "flow": "balanced", "stroke": "#a78bfa" },
+    { "kind": "edge", "from": {"id": "loc", "side": "bottom"}, "to": {"id": "presence", "side": "top"}, "text": "heartbeat", "flow": "heartbeat", "stroke": "#34d399" },
+
+    { "kind": "edge", "from": {"id": "ws", "side": "bottom"}, "to": {"id": "kafka", "side": "top"}, "text": "TripRequested", "flow": "async", "stroke": "#fb923c" },
+    { "kind": "edge", "from": "kafka", "to": "bill", "flow": "fanout", "stroke": "#fb923c" },
+    { "kind": "edge", "from": {"id": "kafka", "side": "bottom"}, "to": {"id": "push", "side": "bottom"}, "flow": "fanout", "stroke": "#fb923c" },
+    { "kind": "edge", "from": {"id": "kafka", "side": "bottom"}, "to": {"id": "lake", "side": "bottom"}, "flow": "fanout", "stroke": "#fb923c", "text": "fan-out" },
+
+    { "kind": "sticky", "text": "GPS is a stream,\nnot requests:\n~500k msgs/s", "x": 1260, "y": 420, "w": 190, "h": 120, "face": "hand" }
+  ]
+}

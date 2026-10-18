@@ -1,0 +1,39 @@
+{
+  "sketch": true,
+  "elements": [
+    { "kind": "text", "text": "An AI support agent with RAG", "x": 40, "y": 20, "font": "xl" },
+    { "kind": "text", "text": "The agent retrieves help-center knowledge, calls tools, checks its answer, and hands off to a human when unsure", "x": 40, "y": 76, "stroke": "#64748b" },
+
+    { "kind": "region", "preset": "app", "title": "Agent runtime", "x": 620, "y": 150, "w": 640, "h": 300 },
+    { "kind": "region", "preset": "system", "title": "Tools", "x": 320, "y": 500, "w": 940, "h": 140 },
+    { "kind": "region", "preset": "account", "title": "Ingestion (nightly)", "x": 40, "y": 700, "w": 660, "h": 140 },
+
+    { "kind": "node", "id": "user", "icon": "user", "title": "Customer", "subtitle": "chat widget", "x": 40, "y": 280 },
+    { "kind": "node", "id": "api", "icon": "gateway", "title": "Chat API", "subtitle": "auth · rate limit", "x": 340, "y": 280 },
+    { "kind": "node", "id": "agent", "icon": "agent", "title": "Support agent", "subtitle": "plans · calls tools", "x": 660, "y": 280, "replicas": 2 },
+    { "kind": "node", "id": "llm", "icon": "sparkles", "title": "LLM", "subtitle": "reasoning", "x": 1040, "y": 200 },
+    { "kind": "node", "id": "guard", "icon": "shield", "title": "Guardrails", "subtitle": "PII · policy check", "x": 1040, "y": 360 },
+
+    { "kind": "node", "id": "vec", "icon": "vector", "title": "Vector DB", "subtitle": "help-center chunks", "x": 360, "y": 550 },
+    { "kind": "node", "id": "orders", "icon": "service", "title": "Orders API", "subtitle": "get_order()", "x": 660, "y": 550 },
+    { "kind": "node", "id": "ticket", "icon": "service", "title": "Helpdesk", "subtitle": "create_ticket()", "x": 1040, "y": 550 },
+
+    { "kind": "node", "id": "docs", "icon": "aws-s3", "title": "Help articles", "subtitle": "markdown · PDFs", "x": 80, "y": 750 },
+    { "kind": "node", "id": "embed", "icon": "sparkles", "title": "Chunk + embed", "subtitle": "embedding model", "x": 360, "y": 750 },
+
+    { "kind": "node", "id": "human", "icon": "user", "title": "Human agent", "subtitle": "takes over", "x": 1360, "y": 550 },
+
+    { "kind": "edge", "from": "user", "to": "api", "text": "message", "flow": "request", "stroke": "#2563eb" },
+    { "kind": "edge", "from": "api", "to": "agent", "flow": "request", "stroke": "#2563eb" },
+    { "kind": "edge", "from": {"id": "agent", "side": "right"}, "to": {"id": "llm", "side": "left"}, "text": "prompt + context", "label_t": 0.78, "flow": "request", "stroke": "#7c3aed" },
+    { "kind": "edge", "from": {"id": "agent", "side": "right"}, "to": {"id": "guard", "side": "left"}, "text": "check reply", "label_t": 0.78, "flow": "request", "stroke": "#15803d" },
+    { "kind": "edge", "from": {"id": "agent", "side": "bottom"}, "to": {"id": "vec", "side": "top"}, "text": "retrieve top-k", "flow": "request", "stroke": "#0f766e" },
+    { "kind": "edge", "from": {"id": "agent", "side": "bottom"}, "to": {"id": "orders", "side": "top"}, "text": "tool call", "flow": "request", "stroke": "#0f766e" },
+    { "kind": "edge", "from": {"id": "guard", "side": "bottom"}, "to": {"id": "ticket", "side": "top"}, "text": "escalate if unsure", "flow": "async", "stroke": "#c2410c" },
+    { "kind": "edge", "from": "ticket", "to": "human", "flow": "async", "stroke": "#c2410c" },
+    { "kind": "edge", "from": "docs", "to": "embed", "text": "new + changed", "flow": "batch", "stroke": "#0369a1" },
+    { "kind": "edge", "from": {"id": "embed", "side": "top"}, "to": {"id": "vec", "side": "bottom"}, "text": "upsert vectors", "flow": "batch", "stroke": "#0369a1" },
+
+    { "kind": "sticky", "text": "Unsure? Hand off.\nNever guess about\nrefunds.", "x": 1350, "y": 680, "w": 200, "h": 116 }
+  ]
+}
