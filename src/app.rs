@@ -231,6 +231,8 @@ pub struct App {
     pending_arrow: Option<(u64, u64)>,
     /// window focus last frame, to re-send the cursor when idraw becomes active
     was_focused: bool,
+    /// a touch screen is in use: bigger connection dots, and they show on the selected shape
+    touch: bool,
     /// where the last right-click happened (screen), for "insert here"
     menu_at: Pos2,
 }
@@ -314,6 +316,7 @@ impl App {
             autosave_check: 0.0,
             pending_arrow: None,
             was_focused: true,
+            touch: false,
             menu_at: Pos2::ZERO,
         }
     }
@@ -1091,15 +1094,28 @@ impl App {
         (0..SLOTS)
             .map(|i| {
                 let edge = v.w2s(side_point(e.rect, i));
-                (edge + normals[slot_side(i).0 as usize] * 13.0, edge, i)
+                // further out on touch screens so a finger on the shape's edge doesn't grab a dot
+                (edge + normals[slot_side(i).0 as usize] * if self.touch { 20.0 } else { 13.0 }, edge, i)
             })
             .collect()
     }
 
-    /// Connection dot under screen point `sp` on the hovered shape: (shape, slot).
+    /// Selected shape that can be connected (its dots show even without hover, for touch screens).
+    fn selected_bindable(&self) -> Option<u64> {
+        self.single_box().filter(|e| e.bindable()).map(|e| e.id)
+    }
+
+    /// Shape whose connection dots are showing: the hovered one, else the selected one.
+    fn dot_shape(&self) -> Option<u64> {
+        self.hover_shape.or_else(|| self.selected_bindable())
+    }
+
+    /// Connection dot under screen point `sp` on the hovered or selected shape: (shape, slot).
     fn anchor_at(&self, sp: Pos2) -> Option<(u64, u8)> {
-        let src = self.hover_shape?;
-        self.anchors(src).into_iter().filter(|(a, _, _)| a.distance(sp) < ANCHOR_HIT).min_by(|x, y| x.0.distance(sp).total_cmp(&y.0.distance(sp))).map(|(_, _, i)| (src, i))
+        let hit = if self.touch { ANCHOR_HIT * 2.2 } else { ANCHOR_HIT };
+        [self.hover_shape, self.selected_bindable()].into_iter().flatten().find_map(|src| {
+            self.anchors(src).into_iter().filter(|(a, _, _)| a.distance(sp) < hit).min_by(|x, y| x.0.distance(sp).total_cmp(&y.0.distance(sp))).map(|(_, _, i)| (src, i))
+        })
     }
 
     fn start_connector(&mut self, src: u64, slot: u8, w: Pos2) -> u64 {
@@ -1258,6 +1274,9 @@ impl App {
                     self.zoom_at(p, zd);
                 }
             }
+        }
+        if ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Touch { .. }))) {
+            self.touch = true;
         }
         let presenting = self.scn_play.is_some();
         if matches!(self.drag, Drag::None) && self.tool == Tool::Select && !presenting && self.rec.is_none() {
@@ -1557,6 +1576,9 @@ impl App {
                 if let Some((src, slot)) = self.anchor_at(sp) {
                     let id = self.start_connector(src, slot, w);
                     self.pending_arrow = Some((id, src));
+                    if self.touch {
+                        self.toast(ctx, "Now tap the shape to connect to");
+                    }
                     return;
                 }
             }
@@ -1705,12 +1727,13 @@ impl App {
                 p.rect(r, CornerRadius::same(2), theme::INDIGO.gamma_multiply(0.08), Stroke::new(1.0, theme::INDIGO), StrokeKind::Middle);
             }
         }
-        if let (Some(id), Drag::None, Tool::Select, None) = (self.hover_shape, &self.drag, self.tool, self.pending_arrow) {
-            let hot = p.ctx().input(|i| i.pointer.hover_pos()).and_then(|h| self.anchor_at(h)).map(|x| x.1);
+        if let (Some(id), Drag::None, Tool::Select, None) = (self.dot_shape(), &self.drag, self.tool, self.pending_arrow) {
+            let hot = p.ctx().input(|i| i.pointer.hover_pos()).and_then(|h| self.anchor_at(h)).filter(|x| x.0 == id).map(|x| x.1);
+            let (r, r_on) = if self.touch { (7.0, 9.0) } else { (4.2, 6.5) };
             for (a, edge, i) in self.anchors(id) {
                 let on = hot == Some(i);
                 p.line_segment([edge, a], Stroke::new(1.0, theme::INDIGO.gamma_multiply(0.3)));
-                p.circle(a, if on { 6.5 } else { 4.2 }, if on { theme::INDIGO } else { Color32::WHITE }, Stroke::new(1.5, theme::INDIGO));
+                p.circle(a, if on { r_on } else { r }, if on { theme::INDIGO } else { Color32::WHITE }, Stroke::new(1.5, theme::INDIGO));
             }
         }
         // scenario being recorded: numbered badges
