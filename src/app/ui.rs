@@ -448,6 +448,14 @@ impl App {
                         if let Some(r) = seg(ui, s.route, &[(Route::Elbow, "Elbow"), (Route::Straight, "Straight"), (Route::Curve, "Curve")]) {
                             change = Some(Box::new(move |e| e.style.route = r));
                         }
+                        if !first.text.is_empty() {
+                            section(ui, "Label");
+                            let cur = if first.label_off != 0.0 { -1.0 } else { first.label_t };
+                            if let Some(t) = seg(ui, cur, &[(0.15, "Start"), (0.5, "Middle"), (0.85, "End")]) {
+                                change = Some(Box::new(move |e| (e.label_t, e.label_off) = (t, 0.0)));
+                            }
+                            ui.label(RichText::new("or drag the label anywhere along the line").small().color(theme::muted()));
+                        }
                         section(ui, "Arrowheads");
                         if let Some((a, b)) = seg(ui, (s.head_start, s.head_end), &[((false, false), "None"), ((false, true), "End"), ((true, true), "Both")]) {
                             change = Some(Box::new(move |e| (e.style.head_start, e.style.head_end) = (a, b)));
@@ -1146,7 +1154,7 @@ impl App {
             }
             Kind::Comment => (v.w2s(r.min) + vec2(24.0, -8.0), 240.0, 13.0 / z, false, INK, Align::Min),
             Kind::Arrow => {
-                let c = render::arrow_label_center(&self.doc.arrow_path(&e));
+                let c = render::arrow_label_center(&self.doc.arrow_path(&e), &e);
                 (v.w2s(c - vec2(90.0, 10.0)), 180.0 * z, render::label_size(&e), false, e.style.stroke, Align::Center)
             }
             _ => {

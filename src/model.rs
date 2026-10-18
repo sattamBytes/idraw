@@ -198,6 +198,10 @@ fn one() -> u8 {
     1
 }
 
+fn half() -> f32 {
+    0.5
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Element {
     pub id: u64,
@@ -238,6 +242,11 @@ pub struct Element {
     pub show_notes: bool,
     #[serde(default)]
     pub speed: Speed,
+    /// Connector label position: fraction along the path, and sideways offset from it.
+    #[serde(default = "half")]
+    pub label_t: f32,
+    #[serde(default)]
+    pub label_off: f32,
 }
 
 impl Element {
@@ -285,6 +294,8 @@ impl Element {
             notes: String::new(),
             show_notes: false,
             speed: Speed::Normal,
+            label_t: 0.5,
+            label_off: 0.0,
         }
     }
 
@@ -720,6 +731,40 @@ pub fn point_at(path: &[Pos2], mut d: f32) -> Pos2 {
     *path.last().unwrap_or(&Pos2::ZERO)
 }
 
+/// Where a connector's label sits: `t` of the way along, pushed `off` to the side.
+pub fn label_anchor(path: &[Pos2], t: f32, off: f32) -> Pos2 {
+    let l = path_len(path);
+    let d = l * t.clamp(0.0, 1.0);
+    let p = point_at(path, d);
+    if off.abs() < 0.01 {
+        return p;
+    }
+    let tan = (point_at(path, (d + 2.0).min(l)) - point_at(path, (d - 2.0).max(0.0))).normalized();
+    p + vec2(-tan.y, tan.x) * off
+}
+
+/// Closest spot on a path to `p`: (fraction along, signed sideways distance).
+pub fn project(path: &[Pos2], p: Pos2) -> (f32, f32) {
+    let l = path_len(path).max(1e-3);
+    let (mut best, mut acc) = ((f32::MAX, 0.5, 0.0), 0.0);
+    for w in path.windows(2) {
+        let ab = w[1] - w[0];
+        let len = ab.length();
+        if len < 1e-3 {
+            continue;
+        }
+        let t = ((p - w[0]).dot(ab) / (len * len)).clamp(0.0, 1.0);
+        let q = w[0] + ab * t;
+        let dist = q.distance(p);
+        if dist < best.0 {
+            let side = (ab.x * (p - w[0]).y - ab.y * (p - w[0]).x).signum();
+            best = (dist, (acc + len * t) / l, dist * side);
+        }
+        acc += len;
+    }
+    (best.1, best.2)
+}
+
 /// Shorten path at both ends (to leave room for arrowheads).
 fn trim(path: &[Pos2], start: f32, end: f32) -> Vec<Pos2> {
     let l = path_len(path);
@@ -1150,6 +1195,15 @@ mod tests {
         assert_eq!((x, a), (110., 0.0));
         let (_, top, _) = text_place(r, TextPos::Bottom, true, s, 10.);
         assert!(top > 60.);
+    }
+
+    #[test]
+    fn label_drag_roundtrip() {
+        let path = vec![pos2(0., 0.), pos2(100., 0.), pos2(100., 100.)];
+        let target = pos2(30., 20.);
+        let (t, off) = project(&path, target);
+        assert!((label_anchor(&path, t, off) - target).length() < 0.5, "{t} {off}");
+        assert_eq!(label_anchor(&path, 0.5, 0.0), pos2(100., 0.));
     }
 
     #[test]

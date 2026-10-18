@@ -337,7 +337,7 @@ fn arrow(o: &mut String, c: &Ctx, e: &Element) {
         let lines: Vec<&str> = e.text.split('\n').collect();
         let w = est_w(&e.text, size) + 14.0;
         let h = lines.len() as f32 * size * LINE_H + 4.0;
-        let m = point_at(&path, path_len(&path) / 2.0);
+        let m = label_anchor(&path, e.label_t, e.label_off);
         let _ = write!(
             o,
             r#"<rect x="{:.1}" y="{:.1}" width="{w:.1}" height="{h:.1}" rx="{:.1}" {} {} stroke-width="1"/>"#,

@@ -354,7 +354,7 @@ fn draw_arrow(p: &Painter, ctx: &Context, doc: &Doc, e: &Element, v: &View, o: &
         let size = label_size(e);
         let lines: Vec<&str> = e.text.split('\n').collect();
         let mt = measure(ctx, &e.text, size, o.sketch);
-        let c = arrow_label_center(&path);
+        let c = arrow_label_center(&path, e);
         let pill = Rect::from_center_size(c, mt + vec2(14.0, 4.0));
         p.rect(v.rect(pill), cr(pill.height() / 2.0 * z), theme::panel_bg(), Stroke::new(1.0, color.gamma_multiply(0.3)), StrokeKind::Inside);
         text_lines(p, v, &lines, c.x, c.y - mt.y / 2.0, size, false, color, 0.5, o.sketch);
@@ -365,8 +365,8 @@ pub fn label_size(e: &Element) -> f32 {
     (e.style.font * 0.7).max(11.0)
 }
 
-pub fn arrow_label_center(path: &[Pos2]) -> Pos2 {
-    point_at(path, path_len(path) / 2.0)
+pub fn arrow_label_center(path: &[Pos2], e: &Element) -> Pos2 {
+    label_anchor(path, e.label_t, e.label_off)
 }
 
 pub fn draw_grid(p: &Painter, rect: Rect, v: &View) {

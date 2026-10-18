@@ -100,6 +100,7 @@ enum Drag {
     Create { id: u64, start: Pos2 },
     ArrowEnd { id: u64, to: bool, source: Option<u64> },
     Pen(u64),
+    Label(u64),
 }
 
 /// Quick component chooser: `/` at the cursor, or after dropping a connector on empty canvas.
@@ -796,8 +797,23 @@ impl App {
         vec![(pos2(c.x, r.min.y - o), pos2(c.x, r.min.y)), (pos2(r.max.x + o, c.y), pos2(r.max.x, c.y)), (pos2(c.x, r.max.y + o), pos2(c.x, r.max.y)), (pos2(r.min.x - o, c.y), pos2(r.min.x, c.y))]
     }
 
-    fn begin_select_drag(&mut self, sp: Pos2, w: Pos2, shift: bool) {
+    /// Connector whose label pill is under `w`.
+    fn label_hit(&self, ctx: &Context, w: Pos2) -> Option<u64> {
+        self.doc.elements.iter().rev().filter(|e| e.kind == Kind::Arrow && !e.text.is_empty()).find_map(|e| {
+            let c = render::arrow_label_center(&self.doc.arrow_path(e), e);
+            let m = render::measure(ctx, &e.text, render::label_size(e), self.doc.sketch);
+            Rect::from_center_size(c, m + vec2(18.0, 8.0)).contains(w).then_some(e.id)
+        })
+    }
+
+    fn begin_select_drag(&mut self, ctx: &Context, sp: Pos2, w: Pos2, shift: bool) {
         let v = self.view();
+        if let Some(id) = self.label_hit(ctx, w) {
+            self.checkpoint();
+            self.sel = vec![id];
+            self.drag = Drag::Label(id);
+            return;
+        }
         if let Some(e) = self.single_box() {
             if let Some(h) = Self::handles(v.rect(e.rect)).iter().position(|h| h.distance(sp) < 8.0) {
                 let orig = e.clone();
@@ -983,7 +999,7 @@ impl App {
             let w = v.s2w(sp);
             self.finish_edit();
             match self.tool {
-                Tool::Select => self.begin_select_drag(sp, w, mods.shift),
+                Tool::Select => self.begin_select_drag(ctx, sp, w, mods.shift),
                 Tool::Rect | Tool::Ellipse | Tool::Diamond | Tool::Region | Tool::Sticky => {
                     self.checkpoint();
                     let e = self.new_shape(self.tool, Rect::from_min_size(w, Vec2::ZERO));
@@ -1081,6 +1097,17 @@ impl App {
                     self.drop_target = t;
                     if let Some(e) = self.doc.get_mut(id) {
                         *(if to { &mut e.to } else { &mut e.from }) = End { id: t, p: w };
+                    }
+                }
+                Drag::Label(id) => {
+                    let id = *id;
+                    if let Some(path) = self.doc.get(id).map(|e| self.doc.arrow_path(e)) {
+                        let (t, off) = project(&path, w);
+                        // snap back onto the line when close
+                        let off = if off.abs() < 10.0 / self.zoom { 0.0 } else { off.clamp(-120.0, 120.0) };
+                        if let Some(e) = self.doc.get_mut(id) {
+                            (e.label_t, e.label_off) = (t.clamp(0.03, 0.97), off);
+                        }
                     }
                 }
                 Drag::Pen(id) => {
@@ -1188,7 +1215,7 @@ impl App {
 
         if resp.double_clicked() {
             let w = v.s2w(resp.interact_pointer_pos().unwrap_or_default());
-            match self.doc.hit(w, 6.0 / self.zoom) {
+            match self.label_hit(ctx, w).or_else(|| self.doc.hit(w, 6.0 / self.zoom)) {
                 Some(id) => self.start_edit(id),
                 None => self.create_text(w),
             }
@@ -1397,6 +1424,8 @@ impl eframe::App for App {
                 ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
             } else if !matches!(self.tool, Tool::Select) {
                 ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
+            } else if matches!(self.drag, Drag::Label(_)) || resp.hover_pos().is_some_and(|h| self.label_hit(ctx, self.view().s2w(h)).is_some()) {
+                ctx.set_cursor_icon(if matches!(self.drag, Drag::Label(_)) { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
             }
 
             let p = ui.painter_at(rect);
