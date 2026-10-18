@@ -20,11 +20,16 @@ Excalidraw's simplicity, draw.io's depth, plus animated request flows you can ex
 **Homebrew**
 
 ```bash
-brew tap sattamBytes/tap
-brew install --cask idraw
+brew install --cask sattamBytes/tap/idraw
 ```
 
-Update later with `brew upgrade --cask idraw`.
+Prefer the short name? Tap and trust once, then it's just `idraw`:
+
+```bash
+brew tap sattamBytes/tap
+brew trust sattamBytes/tap
+brew install --cask idraw      # later: brew upgrade --cask idraw
+```
 
 **Or download** the latest `idraw-…-macos-universal.zip` from [Releases](https://github.com/sattamBytes/idraw/releases/latest), unzip it, and drag **idraw.app** into Applications.
 
