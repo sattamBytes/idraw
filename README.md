@@ -31,6 +31,18 @@ brew trust sattamBytes/tap
 brew install --cask idraw      # later: brew upgrade --cask idraw
 ```
 
+Homebrew also puts the `idraw` command on your PATH (for `idraw render`, `idraw check`, `idraw skill install`).
+
+**Update to the latest version**
+
+```bash
+brew update                                     # fetch the newest cask first
+brew upgrade --cask sattamBytes/tap/idraw
+brew info --cask sattamBytes/tap/idraw          # shows the installed version
+```
+
+> If `brew upgrade` says it's already up to date but the version is old, your copy of the tap hasn't refreshed yet. Run `git -C "$(brew --repo sattamBytes/tap)" pull`, then upgrade again. `brew reinstall` doesn't look for new versions; it reinstalls the one you have.
+
 **Or download** the latest `idraw-…-macos-universal.zip` from [Releases](https://github.com/sattamBytes/idraw/releases/latest), unzip it, and drag **idraw.app** into Applications.
 
 > **First launch:** idraw isn't notarized by Apple yet, so macOS may say it "can't be opened". Right-click idraw.app and choose **Open**, then **Open** again. You only have to do this once. Homebrew installs skip this step.
