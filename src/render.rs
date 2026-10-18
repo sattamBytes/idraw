@@ -129,7 +129,15 @@ fn draw_element(p: &Painter, ctx: &Context, doc: &Doc, e: &Element, v: &View, ic
             let (line, heads) = arrow_geometry(&path, s);
             let sl = v.pts(&line);
             match s.flow {
-                Flow::Dashes => p.extend(Shape::dashed_line_with_offset(&sl, stroke, &[DASH * z], &[DASH * z], (DASH * 2.0 - dash_offset(phase) % (DASH * 2.0)) * z)),
+                Flow::Dashes => {
+                    // egui's offset = where the first dash starts, so growing it marches dashes forward.
+                    let o = dash_offset(phase) % (DASH * 2.0);
+                    p.extend(Shape::dashed_line_with_offset(&sl, stroke, &[DASH * z], &[DASH * z], o * z));
+                    if o > DASH {
+                        // the dash straddling the path start
+                        p.add(Shape::line_segment([sl[0], v.w2s(point_at(&line, o - DASH))], stroke));
+                    }
+                }
                 _ if s.dashed => p.extend(Shape::dashed_line(&sl, stroke, 8.0 * z, 6.0 * z)),
                 Flow::Dots => {
                     p.add(Shape::line(sl, Stroke::new(s.width * z, s.stroke.gamma_multiply(0.45))));
