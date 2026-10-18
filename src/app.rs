@@ -536,13 +536,13 @@ impl App {
     }
 
     fn finish_record(&mut self, ctx: &Context) {
-        let Some((name, nodes)) = self.rec.take() else { return };
+        let Some((name, picks)) = self.rec.take() else { return };
         let into = self.rec_into.take().filter(|i| *i < self.doc.scenarios.len());
-        if nodes.len() < 2 {
-            return self.toast(ctx, "Click at least two components, in order");
+        let steps = self.doc.steps_from_picks(&picks, None);
+        if steps.is_empty() {
+            return self.toast(ctx, "Click components or connectors in the order the request travels");
         }
         self.checkpoint();
-        let steps: Vec<Step> = nodes.windows(2).map(|w| Step { from: w[0], to: w[1], caption: String::new() }).collect();
         let idx = match into {
             Some(i) => {
                 self.doc.scenarios[i].steps.extend(steps);
@@ -1083,12 +1083,14 @@ impl App {
         }
 
         // recording a scenario: clicks pick components in order
-        if let Some((_, nodes)) = &mut self.rec {
+        if self.rec.is_some() {
             if resp.clicked() {
                 let w = v.s2w(resp.interact_pointer_pos().unwrap_or_default());
-                if let Some(id) = self.doc.hit_bindable(w, None) {
-                    if nodes.last() != Some(&id) {
-                        nodes.push(id);
+                // components or existing connectors (incl. their labels)
+                let id = self.label_hit(ctx, w).or_else(|| self.doc.hit(w, 8.0 / self.zoom)).filter(|id| self.doc.get(*id).is_some_and(|e| e.kind == Kind::Arrow || e.bindable()));
+                if let (Some(id), Some((_, picks))) = (id, &mut self.rec) {
+                    if picks.last() != Some(&id) {
+                        picks.push(id);
                     }
                 }
             }
@@ -1459,19 +1461,21 @@ impl App {
             }
         }
         // scenario being recorded: numbered badges
-        if let Some((_, nodes)) = &self.rec {
-            let pts: Vec<Pos2> = nodes.iter().filter_map(|id| self.doc.get(*id)).map(|e| v.w2s(e.rect.center())).collect();
-            if pts.len() > 1 {
-                p.extend(egui::Shape::dashed_line(&pts, Stroke::new(2.0, theme::RED), 8.0, 5.0));
-            }
-            for (i, id) in nodes.iter().enumerate() {
-                if let Some(e) = self.doc.get(*id) {
+        if let Some((_, picks)) = &self.rec {
+            // highlight what was picked; never draw new lines
+            for (i, id) in picks.iter().enumerate() {
+                let Some(e) = self.doc.get(*id) else { continue };
+                let badge = if e.kind == Kind::Arrow {
+                    let path = self.doc.arrow_path(e);
+                    p.add(egui::Shape::line(v.pts(&path), Stroke::new(e.style.width * self.zoom + 6.0, theme::RED.gamma_multiply(0.45))));
+                    v.w2s(point_at(&path, path_len(&path) * 0.35))
+                } else {
                     let r = v.rect(e.rect);
                     p.rect_stroke(r.expand(4.0), CornerRadius::same(12), Stroke::new(2.0, theme::RED), StrokeKind::Outside);
-                    let c = r.left_top();
-                    p.circle_filled(c, 11.0, theme::RED);
-                    p.text(c, Align2::CENTER_CENTER, format!("{}", i + 1), FontId::proportional(12.0), Color32::WHITE);
-                }
+                    r.left_top()
+                };
+                p.circle_filled(badge, 11.0, theme::RED);
+                p.text(badge, Align2::CENTER_CENTER, format!("{}", i + 1), FontId::proportional(12.0), Color32::WHITE);
             }
         }
         // collaborators' cursors

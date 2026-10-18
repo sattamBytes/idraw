@@ -385,9 +385,8 @@ pub fn scenario_svg(doc: &Doc, scn: &Scenario, t: f32, look: Look) -> Option<(St
         if !(i < st.step || (i == st.step && st.since_arrive >= 0.0)) {
             continue;
         }
-        match doc.step_arrow(s) {
-            Some(a) => element(&mut o, &c, a),
-            None => poly_path(&mut o, &doc.step_path(s), false, &format!(r#"fill="none" stroke="{}" stroke-width="2" stroke-linecap="round""#, hex(hl))),
+        if let Some(a) = doc.step_arrow(s) {
+            element(&mut o, &c, a);
         }
     }
     let cur = &scn.steps[st.step];
@@ -541,7 +540,7 @@ mod tests {
         r.tpos = TextPos::Bottom;
         r.outside = true;
         d.add(r);
-        d.scenarios.push(Scenario { name: "read".into(), steps: vec![Step { from: b, to: a, caption: "query".into() }] });
+        d.scenarios.push(Scenario { name: "read".into(), steps: vec![Step { from: b, to: a, caption: "query".into(), edge: None }] });
         d
     }
 

@@ -362,6 +362,9 @@ pub struct Step {
     pub to: u64,
     #[serde(default)]
     pub caption: String,
+    /// The existing connector this hop travels along (None = no connector; nothing is drawn).
+    #[serde(default)]
+    pub edge: Option<u64>,
 }
 
 #[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq)]
@@ -481,7 +484,42 @@ impl Doc {
 
     /// Connector that links the two components of a scenario step (either direction).
     pub fn step_arrow(&self, st: &Step) -> Option<&Element> {
+        if st.from == st.to {
+            return None;
+        }
+        if let Some(a) = st.edge.and_then(|id| self.get(id)).filter(|e| e.kind == Kind::Arrow) {
+            return Some(a);
+        }
         self.elements.iter().find(|e| e.kind == Kind::Arrow && ((e.from.id == Some(st.from) && e.to.id == Some(st.to)) || (e.from.id == Some(st.to) && e.to.id == Some(st.from))))
+    }
+
+    /// Turns recorded clicks (components and/or connectors, in order) into flow steps.
+    /// Only existing connectors are used; nothing new is drawn.
+    pub fn steps_from_picks(&self, picks: &[u64], start: Option<u64>) -> Vec<Step> {
+        let mut cur = start;
+        let mut steps = vec![];
+        for &id in picks {
+            let Some(e) = self.get(id) else { continue };
+            if e.kind == Kind::Arrow {
+                let (Some(f), Some(t)) = (e.from.id, e.to.id) else { continue };
+                // travel in the direction we're already going
+                let (from, to) = if cur == Some(t) { (t, f) } else { (f, t) };
+                steps.push(Step { from, to, caption: String::new(), edge: Some(id) });
+                cur = Some(to);
+            } else {
+                match cur {
+                    None => cur = Some(id),
+                    Some(c) if c == id => {}
+                    Some(c) => {
+                        let probe = Step { from: c, to: id, caption: String::new(), edge: None };
+                        let edge = self.step_arrow(&probe).map(|a| a.id);
+                        steps.push(Step { edge, ..probe });
+                        cur = Some(id);
+                    }
+                }
+            }
+        }
+        steps
     }
 
     fn end_rect(&self, end: &End) -> (Rect, Option<Kind>) {
@@ -566,21 +604,14 @@ impl Doc {
     }
 
     /// Path a scenario packet travels for one step (follows the connecting arrow if any).
+    /// Path along the step's connector, oriented from -> to. Empty when there is no connector.
     pub fn step_path(&self, st: &Step) -> Vec<Pos2> {
-        for e in self.elements.iter().filter(|e| e.kind == Kind::Arrow) {
-            if e.from.id == Some(st.from) && e.to.id == Some(st.to) {
-                return self.arrow_path(e);
-            }
-            if e.from.id == Some(st.to) && e.to.id == Some(st.from) {
-                let mut p = self.arrow_path(e);
-                p.reverse();
-                return p;
-            }
+        let Some(a) = self.step_arrow(st) else { return vec![] };
+        let mut p = self.arrow_path(a);
+        if a.from.id == Some(st.to) && a.to.id == Some(st.from) {
+            p.reverse();
         }
-        match (self.get(st.from), self.get(st.to)) {
-            (Some(a), Some(b)) => vec![boundary(a.rect, Some(a.kind), b.rect.center()), boundary(b.rect, Some(b.kind), a.rect.center())],
-            _ => vec![],
-        }
+        p
     }
 
     pub fn any_down(&self) -> bool {
@@ -1258,6 +1289,28 @@ mod tests {
         assert_eq!((x, a), (110., 0.0));
         let (_, top, _) = text_place(r, TextPos::Bottom, true, s, 10.);
         assert!(top > 60.);
+    }
+
+    #[test]
+    fn flow_uses_existing_connectors_only() {
+        let mut d = Doc::default();
+        let a = d.add(rect_el(0., 0.));
+        let b = d.add(rect_el(300., 0.));
+        let c = d.add(rect_el(600., 0.));
+        let mut arr = Element::new(Kind::Arrow, Rect::ZERO);
+        arr.from.id = Some(b);
+        arr.to.id = Some(a); // drawn b -> a
+        let ab = d.add(arr);
+        // click nodes a, b, c: a-b uses the connector (reversed), b-c has none
+        let s = d.steps_from_picks(&[a, b, c], None);
+        assert_eq!(s.len(), 2);
+        assert_eq!(s[0].edge, Some(ab));
+        assert_eq!(s[1].edge, None);
+        assert!(d.step_path(&s[1]).is_empty(), "no invented line");
+        assert_eq!(d.step_path(&s[0]).first().copied(), Some(pos2(100., 25.)), "travels a -> b");
+        // clicking the connector itself while at a goes a -> b
+        let s = d.steps_from_picks(&[a, ab], None);
+        assert_eq!((s[0].from, s[0].to, s[0].edge), (a, b, Some(ab)));
     }
 
     #[test]

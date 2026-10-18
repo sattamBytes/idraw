@@ -812,7 +812,7 @@ impl App {
                         ui.set_width(310.0);
                         for (n, t) in [
                             ("1", "Press Record below"),
-                            ("2", "Click components in the order the request visits them, e.g. Users → API → Orders → DB"),
+                            ("2", "Click the components (or connectors) in the order the request travels, e.g. Users → API → Orders → DB. Only connectors you already drew are used."),
                             ("3", "Press Done (or Enter)"),
                             ("4", "Add a caption to each step, then press ▶ to play or ⤓ to export a GIF"),
                         ] {
@@ -911,7 +911,7 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new("●").color(theme::RED).size(16.0));
                         ui.label(RichText::new(format!("Recording “{name}”")).strong());
-                        ui.label(RichText::new(if n == 0 { "click the component where the request starts".to_string() } else { format!("click the next component it goes to · {} steps so far · Enter or Done to finish", n.saturating_sub(1)) }).color(theme::muted()));
+                        ui.label(RichText::new(if n == 0 { "click the component where the request starts".to_string() } else { format!("click the next component or connector · {n} picked · Enter or Done to finish") }).color(theme::muted()));
                         if ui.button("Cancel").clicked() {
                             act = "cancel";
                         }

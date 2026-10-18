@@ -405,11 +405,9 @@ pub fn draw_scenario(p: &Painter, ctx: &Context, doc: &Doc, v: &View, icons: &mu
     // components are all drawn already; connectors appear hop by hop
     let done = |i: usize| i < st.step || (i == st.step && st.since_arrive >= 0.0);
     for (_, s) in scn.steps.iter().enumerate().filter(|(i, _)| done(*i)) {
-        match doc.step_arrow(s) {
-            Some(a) => draw_element(p, ctx, doc, a, v, icons, o),
-            None => {
-                p.add(Shape::line(v.pts(&doc.step_path(s)), Stroke::new(2.0 * z, hl)));
-            }
+        // only connectors that exist in the diagram are shown
+        if let Some(a) = doc.step_arrow(s) {
+            draw_element(p, ctx, doc, a, v, icons, o);
         }
     }
     let cur = &scn.steps[st.step];
