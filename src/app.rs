@@ -233,6 +233,8 @@ pub struct App {
     was_focused: bool,
     /// a touch screen is in use: bigger connection dots, and they show on the selected shape
     touch: bool,
+    /// where a finger (or mouse button) went down on the canvas, to recognise taps
+    press_at: Option<Pos2>,
     /// where the last right-click happened (screen), for "insert here"
     menu_at: Pos2,
 }
@@ -317,6 +319,7 @@ impl App {
             pending_arrow: None,
             was_focused: true,
             touch: false,
+            press_at: None,
             menu_at: Pos2::ZERO,
         }
     }
@@ -1272,6 +1275,21 @@ impl App {
                 _ => None,
             })
         });
+        // a tap: pressed and released on the canvas close together, not on a panel floating above
+        // it. egui misses finger taps on controls that can also be dragged (like this canvas).
+        if let Some(p) = ctx.input(|i| i.events.iter().find_map(|e| match e {
+            egui::Event::PointerButton { pos, pressed: true, .. } if canvas.contains(*pos) => Some(*pos),
+            _ => None,
+        })) {
+            self.press_at = Some(p);
+        }
+        let on_canvas = |p: Pos2| ctx.layer_id_at(p).is_none_or(|l| l.order == egui::Order::Background);
+        let finger_tap = matches!(self.drag, Drag::None)
+            && matches!((self.press_at, tap_at), (Some(a), Some(b)) if a.distance(b) < 10.0 && on_canvas(b));
+        if tap_at.is_some() {
+            self.press_at = None;
+        }
+        let clicked = resp.clicked() || finger_tap;
         let (mods, space, scroll, zd, hover) = ctx.input(|i| (i.modifiers, i.key_down(Key::Space), i.smooth_scroll_delta, i.zoom_delta(), i.pointer.hover_pos()));
         let space = space && !ctx.wants_keyboard_input();
         // panning by drag only with Space held or the middle button (two-finger scroll always pans)
@@ -1302,7 +1320,7 @@ impl App {
             self.hover_shape = None;
         }
 
-        if resp.drag_started() || resp.clicked() {
+        if resp.drag_started() || clicked {
             self.menu = false;
             self.export_menu = false;
             self.picker = None;
@@ -1310,7 +1328,7 @@ impl App {
 
         // recording a scenario: clicks pick components in order
         if self.rec.is_some() {
-            if resp.clicked() {
+            if clicked {
                 let w = v.s2w(tap_at.or(resp.interact_pointer_pos()).unwrap_or_default());
                 // components or existing connectors (incl. their labels)
                 let id = self.label_hit(ctx, w).or_else(|| self.doc.hit(w, 8.0 / self.zoom)).filter(|id| self.doc.get(*id).is_some_and(|e| e.kind == Kind::Arrow || e.bindable()));
@@ -1334,7 +1352,7 @@ impl App {
         // connector started by a click: it follows the mouse; the next click places it
         if let Some((id, src)) = self.pending_arrow {
             let released = tap_at;
-            let placing = released.is_some() || resp.clicked() || resp.drag_stopped();
+            let placing = clicked || resp.drag_stopped();
             // with no position at all (finger lifted, nothing new) the connector waits where it is
             let pos = released.or_else(|| ctx.input(|i| i.pointer.latest_pos())).or(hover);
             let Some(sp) = pos else { return };
@@ -1358,7 +1376,7 @@ impl App {
         }
         // outage simulation: click a component to take it down / bring it back
         if self.failures {
-            if resp.clicked() {
+            if clicked {
                 let w = v.s2w(tap_at.or(resp.interact_pointer_pos()).unwrap_or_default());
                 if let Some(id) = self.doc.hit_bindable(w, None) {
                     self.checkpoint();
@@ -1578,7 +1596,7 @@ impl App {
             self.guides.clear();
         }
 
-        if resp.clicked() {
+        if clicked {
             let sp = tap_at.or(resp.interact_pointer_pos()).unwrap_or_default();
             let w = v.s2w(sp);
             if self.editing.is_some() {
