@@ -1,12 +1,14 @@
-//! Diagram-as-code: a tiny text format kept in two-way sync with the canvas, plus Mermaid import.
+//! Diagram as code, written for humans. One connection per line, using component names:
 //!
 //! ```text
-//! users   = user "Users" "web + mobile"     # key = icon "Title" "subtitle"
-//! gateway = aws-apigw "API Gateway"
-//! users => gateway : HTTPS                   # => packets  ~> dashes  --> dashed  <-> both  -> plain
-//! gateway -> orders, payments
+//! Users -> API Gateway -> Orders service
+//! Orders service -> Postgres : SQL          label after a colon
+//! Orders service => Kafka                   => animated   --> dashed   <-> both ways
+//! Cache                                     a component on its own
+//! Payments [aws-lambda] (card processing)   optional [icon] and (subtitle)
 //! ```
-//! Only component nodes and the arrows between them live in code; other shapes are untouched.
+//! Icons are picked from names ("S3", "Lambda", "Postgres"…). Only components and the
+//! arrows between them live in code; other shapes on the canvas are untouched.
 
 use crate::model::*;
 use eframe::egui::{Pos2, Rect, Vec2, pos2, vec2};
@@ -31,23 +33,24 @@ pub fn slug(s: &str) -> String {
     }
 }
 
-/// Stable code key for every component node (derived from its title).
-pub fn keys(doc: &Doc) -> Vec<(u64, String)> {
+fn clean_name(s: &str) -> String {
+    s.chars().filter(|c| !matches!(c, ',' | ':' | '[' | ']' | '(' | ')' | '>' | '#')).collect::<String>().split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Name of every component as used in code: its title, made unique ("Worker 2").
+pub fn names(doc: &Doc) -> Vec<(u64, String)> {
     let mut used: HashMap<String, usize> = HashMap::new();
     doc.elements
         .iter()
         .filter(|e| e.kind == Kind::Node)
         .map(|e| {
-            let base = if e.key.is_empty() { slug(node_text(&e.text).0) } else { e.key.clone() };
-            let n = used.entry(base.clone()).or_insert(0);
+            let base = clean_name(node_text(&e.text).0);
+            let base = if base.is_empty() { "Component".to_string() } else { base };
+            let n = used.entry(base.to_lowercase()).or_insert(0);
             *n += 1;
-            (e.id, if *n == 1 { base } else { format!("{base}{n}") })
+            (e.id, if *n == 1 { base } else { format!("{base} {n}") })
         })
         .collect()
-}
-
-fn quote(s: &str) -> String {
-    format!("\"{}\"", s.replace('"', "'"))
 }
 
 fn op_of(e: &Element) -> &'static str {
@@ -61,41 +64,72 @@ fn op_of(e: &Element) -> &'static str {
 }
 
 pub fn to_code(doc: &Doc) -> String {
-    let k = keys(doc);
-    let key = |id: u64| k.iter().find(|x| x.0 == id).map(|x| x.1.clone());
-    let mut out = String::from("# key = icon \"Title\" \"subtitle\"   ·   edges: -> => ~> --> <->   ·   a -> b : label\n");
-    for (id, kk) in &k {
-        let e = doc.get(*id).unwrap();
-        let (title, sub) = node_text(&e.text);
-        let mut line = format!("{kk} = {} {}", if e.icon.is_empty() { "service" } else { &e.icon }, quote(title));
-        if !sub.is_empty() {
-            line += &format!(" {}", quote(&sub.join(" | ")));
-        }
-        out += &line;
-        out.push('\n');
-    }
-    let mut first = true;
+    let n = names(doc);
+    let name = |id: u64| n.iter().find(|x| x.0 == id).map(|x| x.1.clone());
+    let mut out = String::new();
+    let mut linked: Vec<u64> = vec![];
     for e in doc.elements.iter().filter(|e| e.kind == Kind::Arrow) {
-        if let (Some(a), Some(b)) = (e.from.id.and_then(key), e.to.id.and_then(key)) {
-            if first {
-                out.push('\n');
-                first = false;
-            }
+        if let (Some(a), Some(b)) = (e.from.id.and_then(name), e.to.id.and_then(name)) {
             out += &format!("{a} {} {b}", op_of(e));
             if !e.text.is_empty() {
                 out += &format!(" : {}", e.text.replace('\n', " "));
             }
             out.push('\n');
+            linked.extend([e.from.id.unwrap(), e.to.id.unwrap()]);
+        }
+    }
+    for (id, nm) in &n {
+        if !linked.contains(id) {
+            out += &format!("{nm}\n");
         }
     }
     out
 }
 
-struct Def {
-    key: String,
-    icon: String,
-    title: String,
-    sub: String,
+#[derive(Default, Clone)]
+struct NodeRef {
+    name: String,
+    icon: Option<String>,
+    sub: Option<String>,
+}
+
+fn parse_node(tok: &str) -> Option<NodeRef> {
+    let mut t = tok.trim().to_string();
+    let mut r = NodeRef::default();
+    if t.ends_with(')') {
+        if let Some(i) = t.rfind('(') {
+            r.sub = Some(t[i + 1..t.len() - 1].trim().to_string());
+            t.truncate(i);
+        }
+    }
+    let t2 = t.trim_end().to_string();
+    if t2.ends_with(']') {
+        if let Some(i) = t2.rfind('[') {
+            r.icon = Some(t2[i + 1..t2.len() - 1].trim().to_string());
+            t = t2[..i].to_string();
+        }
+    }
+    r.name = clean_name(&t);
+    (!r.name.is_empty()).then_some(r)
+}
+
+/// Splits off a trailing ": label" (ignoring colons inside parentheses).
+fn split_label(line: &str) -> (&str, String) {
+    let mut depth = 0;
+    for (i, c) in line.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ':' if depth == 0 => return (&line[..i], line[i + 1..].trim().to_string()),
+            _ => {}
+        }
+    }
+    (line, String::new())
+}
+
+/// Earliest arrow operator in `s` (longest wins at the same spot).
+fn find_op(s: &str) -> Option<(usize, &'static str)> {
+    OPS.iter().filter_map(|op| s.find(op).map(|i| (i, *op))).min_by_key(|(i, op)| (*i, usize::MAX - op.len()))
 }
 
 struct Edge {
@@ -105,65 +139,56 @@ struct Edge {
     label: String,
 }
 
-fn strings(s: &str) -> Vec<String> {
-    let mut out = vec![];
-    let mut cur: Option<String> = None;
-    for c in s.chars() {
-        match (&mut cur, c) {
-            (None, '"') => cur = Some(String::new()),
-            (Some(t), '"') => {
-                out.push(std::mem::take(t));
-                cur = None;
+fn parse(src: &str) -> Result<(Vec<NodeRef>, Vec<Edge>), String> {
+    let mut nodes: Vec<NodeRef> = vec![];
+    let mut edges = vec![];
+    let add = |r: NodeRef, nodes: &mut Vec<NodeRef>| -> String {
+        let key = r.name.to_lowercase();
+        match nodes.iter_mut().find(|n| n.name.to_lowercase() == key) {
+            Some(n) => {
+                n.icon = r.icon.or(n.icon.take());
+                n.sub = r.sub.or(n.sub.take());
+                n.name.clone()
             }
-            (Some(t), c) => t.push(c),
-            _ => {}
+            None => {
+                let nm = r.name.clone();
+                nodes.push(r);
+                nm
+            }
         }
-    }
-    out
-}
-
-fn parse(src: &str) -> Result<(Vec<Def>, Vec<Edge>), String> {
-    let (mut defs, mut edges) = (vec![], vec![]);
-    for (n, raw) in src.lines().enumerate() {
-        let line = match raw.find('#') {
-            Some(i) if !raw[..i].contains('"') || raw[..i].matches('"').count() % 2 == 0 => &raw[..i],
-            _ => raw,
-        }
-        .trim();
-        if line.is_empty() {
+    };
+    for (ln, raw) in src.lines().enumerate() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with("//") {
             continue;
         }
-        let err = |m: &str| format!("line {}: {m}", n + 1);
-        if let Some(op) = OPS.iter().find(|o| line.contains(**o)).copied() {
-            let (body, label) = match line.split_once(" : ").or_else(|| line.split_once(':')) {
-                Some((b, l)) => (b, l.trim().to_string()),
-                None => (line, String::new()),
-            };
-            let parts: Vec<Vec<String>> = body.split(op).map(|p| p.split(',').map(|k| slug(k.trim())).filter(|k| k != "node").collect()).collect();
-            if parts.len() < 2 || parts.iter().any(|p| p.is_empty()) {
-                return Err(err("edge needs a source and a target"));
-            }
-            for w in parts.windows(2) {
-                for a in &w[0] {
-                    for b in &w[1] {
-                        edges.push(Edge { a: a.clone(), b: b.clone(), op, label: label.clone() });
-                    }
+        let (body, label) = split_label(line);
+        let mut segs: Vec<(&str, &'static str)> = vec![];
+        let mut rest = body;
+        while let Some((i, op)) = find_op(rest) {
+            segs.push((&rest[..i], op));
+            rest = &rest[i + op.len()..];
+        }
+        segs.push((rest, ""));
+        let groups: Vec<(Vec<String>, &'static str)> = segs
+            .iter()
+            .map(|(seg, op)| (seg.split(',').filter_map(parse_node).map(|r| add(r, &mut nodes)).collect(), *op))
+            .collect();
+        if groups.len() > 1 && groups.iter().any(|g| g.0.is_empty()) {
+            return Err(format!("line {}: an arrow needs a name on both sides", ln + 1));
+        }
+        for w in groups.windows(2) {
+            for a in &w[0].0 {
+                for b in &w[1].0 {
+                    edges.push(Edge { a: a.clone(), b: b.clone(), op: w[0].1, label: label.clone() });
                 }
             }
-        } else if let Some((k, rest)) = line.split_once('=') {
-            let key = slug(k.trim());
-            let rest = rest.trim();
-            let icon = if rest.starts_with('"') { String::new() } else { rest.split_whitespace().next().unwrap_or("").to_string() };
-            let s = strings(rest);
-            defs.push(Def { title: s.first().cloned().unwrap_or_else(|| key.replace('_', " ")), sub: s.get(1).cloned().unwrap_or_default(), key, icon });
-        } else {
-            return Err(err("expected `key = icon \"Title\"` or `a -> b`"));
         }
     }
-    Ok((defs, edges))
+    Ok((nodes, edges))
 }
 
-/// Picks a generic icon from a name, e.g. "orders_db" -> database.
+/// Picks a generic icon from a name, e.g. "orders db" -> database.
 pub fn guess_icon(name: &str) -> &'static str {
     let n = name.to_lowercase();
     let table: &[(&[&str], &str)] = &[
@@ -177,7 +202,7 @@ pub fn guess_icon(name: &str) -> &'static str {
         (&["gateway", "gw", "apigw"], "gateway"),
         (&["cdn", "cloudfront", "edge"], "cdn"),
         (&["dns"], "dns"),
-        (&["user", "client", "customer"], "user"),
+        (&["user", "client", "customer", "shopper"], "user"),
         (&["web", "frontend", "ui", "browser", "spa"], "laptop"),
         (&["mobile", "ios", "android"], "mobile"),
         (&["auth", "login", "keycloak", "oauth"], "lock"),
@@ -191,23 +216,37 @@ pub fn guess_icon(name: &str) -> &'static str {
         (&["vault", "secret"], "key"),
         (&["k8s", "kube"], "k8s"),
         (&["lambda", "function", "fn"], "function"),
+        (&["payment", "billing", "stripe"], "card"),
     ];
     for (keys, icon) in table {
-        if keys.iter().any(|k| n.contains(k)) {
+        if keys.iter().any(|k| n.split(|c: char| !c.is_alphanumeric()).any(|w| w == *k) || (k.len() > 3 && n.contains(k))) {
             return icon;
         }
     }
     "service"
 }
 
+/// Best library icon for a component name: exact service name first ("S3", "Lambda"), then a guess.
+pub fn best_icon(name: &str) -> String {
+    let n = name.to_lowercase();
+    let lib = crate::icons::all().iter().filter(|i| !matches!(i.cat, "ui" | "glyph" | "Boundaries") && !i.color);
+    for i in lib {
+        let id_tail = i.id.split_once('-').map(|x| x.1).unwrap_or(i.id);
+        if i.label.to_lowercase() == n || id_tail == n {
+            return i.id.to_string();
+        }
+    }
+    guess_icon(name).to_string()
+}
+
 fn node_body(title: &str, sub: &str) -> String {
-    if sub.is_empty() { title.to_string() } else { format!("{title}\n{}", sub.replace(" | ", "\n")) }
+    if sub.is_empty() { title.to_string() } else { format!("{title}\n{sub}") }
 }
 
 fn free_spot(doc: &Doc, mut c: Pos2, size: Vec2) -> Pos2 {
     for _ in 0..40 {
         let r = Rect::from_center_size(c, size).expand(16.0);
-        if !doc.elements.iter().any(|e| e.kind != Kind::Region && e.kind != Kind::Arrow && e.rect.intersects(r)) {
+        if !doc.elements.iter().any(|e| e.kind != Kind::Region && e.kind != Kind::Arrow && !e.rect.min.x.is_nan() && e.rect.intersects(r)) {
             return c;
         }
         c.y += size.y + 32.0;
@@ -215,47 +254,51 @@ fn free_spot(doc: &Doc, mut c: Pos2, size: Vec2) -> Pos2 {
     c
 }
 
-/// Applies code to the doc: creates/updates/deletes component nodes and the arrows between them.
+/// Applies code to the doc: creates/renames/deletes components and the arrows between them.
 pub fn apply(doc: &mut Doc, src: &str) -> Result<(), String> {
-    let (mut defs, edges) = parse(src)?;
-    for e in &edges {
-        for k in [&e.a, &e.b] {
-            if !defs.iter().any(|d| &d.key == k) {
-                defs.push(Def { key: k.clone(), icon: guess_icon(k).into(), title: k.replace('_', " "), sub: String::new() });
-            }
+    let (nodes, edges) = parse(src)?;
+    let was_empty = !doc.elements.iter().any(|e| e.kind == Kind::Node);
+    let existing = names(doc);
+    let low = |s: &str| s.to_lowercase();
+    let mut id_of: HashMap<String, u64> = existing.iter().map(|(id, k)| (low(k), *id)).collect();
+    let mut gone: Vec<(u64, String)> = existing.iter().filter(|(_, k)| !nodes.iter().any(|n| low(&n.name) == low(k))).cloned().collect();
+    let fresh: Vec<&NodeRef> = nodes.iter().filter(|n| !id_of.contains_key(&low(&n.name))).collect();
+    // one name changed while typing = rename (keep position, icon, notes)
+    if gone.len() == 1 && fresh.len() == 1 {
+        let (id, old) = gone.pop().unwrap();
+        id_of.remove(&low(&old));
+        id_of.insert(low(&fresh[0].name), id);
+        if let Some(e) = doc.get_mut(id) {
+            let (_, sub) = node_text(&e.text);
+            e.text = node_body(&fresh[0].name, &sub.join("\n"));
         }
     }
-    let was_empty = !doc.elements.iter().any(|e| e.kind == Kind::Node);
-    let existing = keys(doc);
-    let mut id_of: HashMap<String, u64> = existing.iter().map(|(id, k)| (k.clone(), *id)).collect();
-    // remove nodes no longer in code
-    let mut gone: Vec<u64> = existing.iter().filter(|(_, k)| !defs.iter().any(|d| &d.key == k)).map(|(id, _)| *id).collect();
-    let dangling: Vec<u64> = doc.elements.iter().filter(|e| e.kind == Kind::Arrow && [e.from.id, e.to.id].iter().flatten().any(|i| gone.contains(i))).map(|e| e.id).collect();
-    gone.extend(dangling);
-    doc.remove(&gone);
-    // create / update nodes
-    let mut fresh = vec![];
-    for d in &defs {
-        let icon = if d.icon.is_empty() || crate::icons::find(&d.icon).is_none() { guess_icon(&d.key).to_string() } else { d.icon.clone() };
-        let body = node_body(&d.title, &d.sub);
-        match id_of.get(&d.key).and_then(|id| doc.get_mut(*id)) {
+    let gone_ids: Vec<u64> = gone.iter().map(|g| g.0).collect();
+    let mut kill = gone_ids.clone();
+    kill.extend(doc.elements.iter().filter(|e| e.kind == Kind::Arrow && [e.from.id, e.to.id].iter().flatten().any(|i| gone_ids.contains(i))).map(|e| e.id));
+    doc.remove(&kill);
+    let mut created = vec![];
+    for n in &nodes {
+        let icon = n.icon.clone().filter(|i| crate::icons::find(i).is_some());
+        match id_of.get(&low(&n.name)).and_then(|id| doc.get_mut(*id)) {
             Some(e) => {
-                if e.icon != icon {
-                    e.icon = icon.clone();
-                    if let Some(i) = crate::icons::find(&icon) {
-                        e.style.stroke = crate::icons::accent(i.cat);
-                    }
+                let (title, sub) = node_text(&e.text);
+                let sub = n.sub.clone().unwrap_or_else(|| sub.join("\n"));
+                if title != n.name || n.sub.is_some() {
+                    e.text = node_body(&n.name, &sub);
                 }
-                e.text = body;
-                e.key = d.key.clone();
+                if let Some(i) = icon.filter(|i| *i != e.icon) {
+                    e.style.stroke = crate::icons::find(&i).map(|x| crate::icons::accent(x.cat)).unwrap_or(e.style.stroke);
+                    e.icon = i;
+                }
             }
             None => {
+                let icon = icon.unwrap_or_else(|| best_icon(&n.name));
                 let mut e = Element::node(&icon, pos2(f32::NAN, f32::NAN));
-                e.text = body;
-                e.key = d.key.clone();
+                e.text = node_body(&n.name, n.sub.as_deref().unwrap_or(""));
                 let id = doc.add(e);
-                id_of.insert(d.key.clone(), id);
-                fresh.push((d.key.clone(), id));
+                id_of.insert(low(&n.name), id);
+                created.push((low(&n.name), id));
             }
         }
     }
@@ -269,7 +312,7 @@ pub fn apply(doc: &mut Doc, src: &str) -> Result<(), String> {
         .collect();
     let mut keep = vec![];
     for ed in &edges {
-        let (a, b) = (id_of[&ed.a], id_of[&ed.b]);
+        let (a, b) = (id_of[&low(&ed.a)], id_of[&low(&ed.b)]);
         let id = match node_arrows.iter().find(|x| x.1 == a && x.2 == b && !keep.contains(&x.0)) {
             Some(x) => x.0,
             None => {
@@ -294,11 +337,19 @@ pub fn apply(doc: &mut Doc, src: &str) -> Result<(), String> {
     }
     let stale: Vec<u64> = node_arrows.iter().map(|x| x.0).filter(|id| !keep.contains(id)).collect();
     doc.remove(&stale);
-    // place new nodes next to a connected neighbour
-    for (key, id) in &fresh {
-        let size = vec2(176.0, 56.0);
-        let placed = |k: &String| id_of.get(k).and_then(|i| doc.get(*i)).filter(|e| !e.rect.min.x.is_nan()).map(|e| e.rect.center());
-        let anchor = edges.iter().find_map(|e| if &e.b == key { placed(&e.a).map(|c| c + vec2(280.0, 0.0)) } else if &e.a == key { placed(&e.b).map(|c| c - vec2(280.0, 0.0)) } else { None });
+    // place new components next to a connected neighbour
+    let size = vec2(176.0, 56.0);
+    for (key, id) in &created {
+        let placed = |k: &str| id_of.get(k).and_then(|i| doc.get(*i)).filter(|e| !e.rect.min.x.is_nan()).map(|e| e.rect.center());
+        let anchor = edges.iter().find_map(|e| {
+            if &low(&e.b) == key {
+                placed(&low(&e.a)).map(|c| c + vec2(280.0, 0.0))
+            } else if &low(&e.a) == key {
+                placed(&low(&e.b)).map(|c| c - vec2(280.0, 0.0))
+            } else {
+                None
+            }
+        });
         let c = anchor.unwrap_or_else(|| {
             let b = doc.elements.iter().filter(|e| !e.rect.min.x.is_nan() && e.kind != Kind::Arrow).map(|e| e.rect).reduce(|a, b| a.union(b));
             b.map_or(pos2(0.0, 0.0), |b| pos2(b.min.x + 88.0, b.max.y + 100.0))
@@ -306,7 +357,7 @@ pub fn apply(doc: &mut Doc, src: &str) -> Result<(), String> {
         let c = free_spot(doc, c, size);
         doc.get_mut(*id).unwrap().rect = Rect::from_center_size(c, size);
     }
-    if was_empty && !fresh.is_empty() {
+    if was_empty && !created.is_empty() {
         for (id, r) in crate::layout::layered(doc, &[], false) {
             if let Some(e) = doc.get_mut(id) {
                 e.rect = r;
@@ -323,8 +374,9 @@ pub fn from_mermaid(src: &str) -> Option<String> {
     if !(head.starts_with("graph") || head.starts_with("flowchart")) {
         return None;
     }
-    let mut defs: Vec<(String, String, &'static str)> = vec![];
-    let mut edges = vec![];
+    let mut labels: HashMap<String, (String, &'static str)> = HashMap::new();
+    let mut order: Vec<String> = vec![];
+    let mut edges: Vec<(String, &'static str, String, String)> = vec![];
     for l in lines {
         if ["subgraph", "end", "classDef", "class ", "style ", "linkStyle", "click", "direction"].iter().any(|k| l.starts_with(k)) {
             continue;
@@ -337,7 +389,6 @@ pub fn from_mermaid(src: &str) -> Option<String> {
             while i < ch.len() && ch[i] == ' ' {
                 i += 1;
             }
-            // node ref
             let st = i;
             while i < ch.len() && (ch[i].is_alphanumeric() || ch[i] == '_') {
                 i += 1;
@@ -346,42 +397,46 @@ pub fn from_mermaid(src: &str) -> Option<String> {
                 break;
             }
             let id: String = ch[st..i].iter().collect();
-            let mut label = id.clone();
+            let mut label = String::new();
             let mut icon = "";
             if i < ch.len() && "[({>".contains(ch[i]) {
                 let open: String = ch[i..].iter().take_while(|c| "[({>".contains(**c)).collect();
-                let close: String = open.chars().rev().map(|c| match c {
-                    '[' => ']',
-                    '(' => ')',
-                    '{' => '}',
-                    _ => ']',
-                }).collect();
+                let close: String = open
+                    .chars()
+                    .rev()
+                    .map(|c| match c {
+                        '[' => ']',
+                        '(' => ')',
+                        '{' => '}',
+                        _ => ']',
+                    })
+                    .collect();
                 if open == "[(" {
                     icon = "database";
                 }
                 let rest: String = ch[i + open.len()..].iter().collect();
-                if let Some(end) = rest.find(&close) {
-                    label = rest[..end].trim_matches('"').to_string();
-                    i += open.len() + end + close.len();
-                } else {
-                    i = ch.len();
+                match rest.find(&close) {
+                    Some(end) => {
+                        label = rest[..end].trim_matches('"').to_string();
+                        i += open.len() + end + close.len();
+                    }
+                    None => i = ch.len(),
                 }
             }
-            if let Some(d) = defs.iter_mut().find(|d| d.0 == id) {
-                if label != id {
-                    d.1 = label;
-                }
-                if !icon.is_empty() {
-                    d.2 = icon;
-                }
-            } else {
-                defs.push((id.clone(), label.clone(), if icon.is_empty() { guess_icon(&label) } else { icon }));
+            let entry = labels.entry(id.clone()).or_insert_with(|| {
+                order.push(id.clone());
+                (id.clone(), "")
+            });
+            if !label.is_empty() {
+                entry.0 = label;
+            }
+            if !icon.is_empty() {
+                entry.1 = icon;
             }
             if let (Some(p), Some((op, lab))) = (&prev, pending.take()) {
-                edges.push(format!("{p} {op} {id}{}", if lab.is_empty() { String::new() } else { format!(" : {lab}") }));
+                edges.push((p.clone(), op, id.clone(), lab));
             }
             prev = Some(id);
-            // edge operator
             while i < ch.len() && ch[i] == ' ' {
                 i += 1;
             }
@@ -395,7 +450,6 @@ pub fn from_mermaid(src: &str) -> Option<String> {
             let opstr: String = ch[st..i].iter().collect();
             let mut lab = String::new();
             if opstr == "--" || opstr == "==" {
-                // `A -- text --> B`
                 let rest: String = ch[i..].iter().collect();
                 if let Some(end) = rest.find("--").or_else(|| rest.find("==")) {
                     lab = rest[..end].trim().to_string();
@@ -427,27 +481,22 @@ pub fn from_mermaid(src: &str) -> Option<String> {
             pending = Some((op, lab));
         }
     }
-    // readable keys from labels
-    let mut keymap: HashMap<String, String> = HashMap::new();
-    let mut used: Vec<String> = vec![];
-    for (id, label, _) in &defs {
-        let mut k = slug(label);
-        while used.contains(&k) {
-            k.push('2');
-        }
-        used.push(k.clone());
-        keymap.insert(id.clone(), k);
-    }
+    let name = |id: &str| clean_name(&labels[id].0);
     let mut out = String::new();
-    for (id, label, icon) in &defs {
-        out += &format!("{} = {icon} {}\n", keymap[id], quote(label));
+    for id in &order {
+        if labels[id].1 == "database" {
+            out += &format!("{} [database]\n", name(id));
+        }
     }
-    out.push('\n');
-    for e in edges {
-        let mut it = e.splitn(3, ' ');
-        let (a, op, rest) = (it.next().unwrap(), it.next().unwrap(), it.next().unwrap_or(""));
-        let (b, lab) = rest.split_once(' ').unwrap_or((rest, ""));
-        out += &format!("{} {op} {} {lab}\n", keymap[a], keymap[b]);
+    let mut linked = vec![];
+    for (a, op, b, lab) in &edges {
+        out += &format!("{} {op} {}{}\n", name(a), name(b), if lab.is_empty() { String::new() } else { format!(" : {lab}") });
+        linked.extend([a.clone(), b.clone()]);
+    }
+    for id in &order {
+        if !linked.contains(id) && labels[id].1 != "database" {
+            out += &format!("{}\n", name(id));
+        }
     }
     Some(out)
 }
@@ -456,22 +505,47 @@ pub fn from_mermaid(src: &str) -> Option<String> {
 mod tests {
     use super::*;
 
+    fn titles(d: &Doc) -> Vec<String> {
+        d.elements.iter().filter(|e| e.kind == Kind::Node).map(|e| node_text(&e.text).0.to_string()).collect()
+    }
+
     #[test]
-    fn code_roundtrip_and_edit() {
+    fn plain_sentences_build_a_diagram() {
         let mut d = Doc::default();
-        apply(&mut d, "users = user \"Users\" \"web\"\nusers => api : HTTPS\napi -> db").unwrap();
-        assert_eq!(d.elements.iter().filter(|e| e.kind == Kind::Node).count(), 3);
+        apply(&mut d, "Users => API Gateway -> Orders service : REST\nOrders service -> S3\nCache").unwrap();
+        assert_eq!(titles(&d).len(), 5);
+        assert!(d.elements.iter().any(|e| e.icon == "aws-s3"), "S3 picks the AWS S3 icon");
+        assert!(d.elements.iter().any(|e| e.icon == "user"));
         let code = to_code(&d);
-        assert!(code.contains("users => api : HTTPS"), "{code}");
-        assert!(code.contains("db = database"), "{code}");
-        // regenerate from own output is a no-op
+        assert!(code.contains("Users => API Gateway"), "{code}");
+        assert!(code.contains("API Gateway -> Orders service : REST"), "{code}");
+        assert!(code.lines().any(|l| l == "Cache"), "{code}");
+        // regenerating from own output is a no-op
         let n = d.elements.len();
         apply(&mut d, &code).unwrap();
         assert_eq!(d.elements.len(), n);
-        // removing a node removes its edges
-        apply(&mut d, "users = user \"Users\" \"web\"\napi = gateway \"api\"\nusers -> api").unwrap();
-        assert_eq!(d.elements.len(), 3);
         assert!(d.elements.iter().all(|e| !e.rect.min.x.is_nan()));
+    }
+
+    #[test]
+    fn renaming_keeps_the_component() {
+        let mut d = Doc::default();
+        apply(&mut d, "Web -> Orders\nOrders -> DB").unwrap();
+        let id = d.elements.iter().find(|e| e.text == "Orders").unwrap().id;
+        apply(&mut d, "Web -> Checkout\nCheckout -> DB").unwrap();
+        assert_eq!(node_text(&d.get(id).unwrap().text).0, "Checkout");
+        assert_eq!(titles(&d).len(), 3);
+        // deleting a line's component removes it and its arrows
+        apply(&mut d, "Web -> Checkout").unwrap();
+        assert_eq!(d.elements.len(), 3);
+    }
+
+    #[test]
+    fn optional_icon_and_subtitle() {
+        let mut d = Doc::default();
+        apply(&mut d, "Payments [aws-lambda] (card processing) -> Ledger").unwrap();
+        let p = d.elements.iter().find(|e| e.text.starts_with("Payments")).unwrap();
+        assert_eq!((p.icon.as_str(), p.text.as_str()), ("aws-lambda", "Payments\ncard processing"));
     }
 
     #[test]
@@ -481,8 +555,8 @@ mod tests {
         let mut d = Doc::default();
         apply(&mut d, &code).unwrap();
         let c = to_code(&d);
-        assert!(c.contains("orders_db = database"), "{c}");
-        assert!(c.contains("client -> api : HTTPS"), "{c}");
-        assert!(c.contains("api --> cache"), "{c}");
+        assert!(c.contains("Client -> API : HTTPS"), "{c}");
+        assert!(c.contains("API --> Cache"), "{c}");
+        assert!(d.elements.iter().any(|e| e.icon == "database"));
     }
 }

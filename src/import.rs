@@ -32,8 +32,43 @@ pub fn to_doc(src: &str, file_name: &str) -> Result<Doc, String> {
     Ok(d)
 }
 
-fn def(key: &str, icon: &str, title: &str, sub: &str) -> String {
-    format!("{key} = {icon} \"{}\" \"{}\"\n", title.replace('"', "'"), sub.replace('"', "'"))
+/// Collects components/edges by internal key, then writes human code with unique names.
+#[derive(Default)]
+struct Out {
+    nodes: Vec<(String, String, String, String)>,
+    edges: Vec<(String, String, String)>,
+}
+
+impl Out {
+    fn node(&mut self, key: &str, icon: &str, title: &str, sub: &str) {
+        self.nodes.push((key.into(), icon.into(), title.into(), sub.into()));
+    }
+    fn edge(&mut self, a: &str, b: &str, label: &str) {
+        self.edges.push((a.into(), b.into(), label.into()));
+    }
+    fn code(self) -> String {
+        let clean = |s: &str| s.replace(['[', ']', '(', ')', ':', ',', '>', '#'], " ").split_whitespace().collect::<Vec<_>>().join(" ");
+        let mut used: Vec<String> = vec![];
+        let mut name_of: Vec<(String, String)> = vec![];
+        let mut out = String::new();
+        for (key, icon, title, sub) in &self.nodes {
+            let base = clean(title);
+            let mut nm = base.clone();
+            let mut k = 2;
+            while used.contains(&nm.to_lowercase()) {
+                nm = format!("{base} {k}");
+                k += 1;
+            }
+            used.push(nm.to_lowercase());
+            name_of.push((key.clone(), nm.clone()));
+            out += &format!("{nm} [{icon}]{}\n", if sub.is_empty() { String::new() } else { format!(" ({})", clean(sub)) });
+        }
+        let name = |k: &str| name_of.iter().find(|n| n.0 == k).map(|n| n.1.clone()).unwrap_or_else(|| clean(k));
+        for (a, b, l) in &self.edges {
+            out += &format!("{} -> {}{}\n", name(a), name(b), if l.is_empty() { String::new() } else { format!(" : {}", clean(l)) });
+        }
+        out
+    }
 }
 
 fn image_icon(name: &str, image: &str) -> &'static str {
@@ -43,11 +78,11 @@ fn image_icon(name: &str, image: &str) -> &'static str {
 
 fn compose(doc: &Yaml) -> Result<String, String> {
     let services = doc["services"].as_hash().ok_or("`services` is not a map")?;
-    let (mut defs, mut edges) = (String::new(), String::new());
+    let mut out = Out::default();
     for (k, v) in services {
         let name = k.as_str().unwrap_or("service");
         let image = v["image"].as_str().unwrap_or(if v["build"].is_badvalue() { "" } else { "local build" });
-        defs += &def(&slug(name), image_icon(name, image), name, image);
+        out.node(&slug(name), image_icon(name, image), name, image);
         let deps: Vec<String> = match &v["depends_on"] {
             Yaml::Array(a) => a.iter().filter_map(|d| d.as_str().map(String::from)).collect(),
             Yaml::Hash(h) => h.keys().filter_map(|d| d.as_str().map(String::from)).collect(),
@@ -55,14 +90,14 @@ fn compose(doc: &Yaml) -> Result<String, String> {
         };
         let links: Vec<String> = v["links"].as_vec().map(|a| a.iter().filter_map(|d| d.as_str().map(|s| s.split(':').next().unwrap().to_string())).collect()).unwrap_or_default();
         for d in deps.iter().chain(&links) {
-            edges += &format!("{} -> {}\n", slug(name), slug(d));
+            out.edge(&slug(name), &slug(d), "");
         }
     }
-    Ok(format!("{defs}\n{edges}"))
+    Ok(out.code())
 }
 
 fn kubernetes(docs: &[Yaml]) -> Result<String, String> {
-    let (mut defs, mut edges) = (String::new(), String::new());
+    let mut out = Out::default();
     struct Workload {
         key: String,
         labels: Vec<(String, String)>,
@@ -80,24 +115,24 @@ fn kubernetes(docs: &[Yaml]) -> Result<String, String> {
                 let icon = if kind == "CronJob" { "clock" } else if kind == "StatefulSet" && guess_icon(image) == "service" { "database" } else { image_icon(name, image) };
                 let key = slug(name);
                 let replicas = d["spec"]["replicas"].as_i64().map(|r| format!(" · ×{r}")).unwrap_or_default();
-                defs += &def(&key, icon, name, &format!("{kind}{replicas}"));
+                out.node(&key, icon, name, &format!("{kind}{replicas}"));
                 let labels = spec["metadata"]["labels"].as_hash().map(|h| h.iter().filter_map(|(k, v)| Some((k.as_str()?.to_string(), v.as_str()?.to_string()))).collect()).unwrap_or_default();
                 workloads.push(Workload { key, labels });
             }
             "Service" => {
                 let key = format!("{}_svc", slug(name));
-                defs += &def(&key, "lb", name, &format!("Service · {}", d["spec"]["type"].as_str().unwrap_or("ClusterIP")));
+                out.node(&key, "lb", &format!("{name} service"), &format!("Service · {}", d["spec"]["type"].as_str().unwrap_or("ClusterIP")));
                 let sel: Vec<(String, String)> = d["spec"]["selector"].as_hash().map(|h| h.iter().filter_map(|(k, v)| Some((k.as_str()?.to_string(), v.as_str()?.to_string()))).collect()).unwrap_or_default();
                 services.push((name.to_string(), key, sel));
             }
             "Ingress" => {
                 let key = format!("{}_ingress", slug(name));
-                defs += &def(&key, "gateway", name, "Ingress");
+                out.node(&key, "gateway", &format!("{name} ingress"), "Ingress");
                 for rule in d["spec"]["rules"].as_vec().into_iter().flatten() {
                     for p in rule["http"]["paths"].as_vec().into_iter().flatten() {
                         let svc = p["backend"]["service"]["name"].as_str().or(p["backend"]["serviceName"].as_str());
                         if let Some(svc) = svc {
-                            edges += &format!("{key} -> {}_svc : {}\n", slug(svc), p["path"].as_str().unwrap_or("/"));
+                            out.edge(&key, &format!("{}_svc", slug(svc)), p["path"].as_str().unwrap_or("/"));
                         }
                     }
                 }
@@ -108,14 +143,14 @@ fn kubernetes(docs: &[Yaml]) -> Result<String, String> {
     for (_, key, sel) in &services {
         for w in &workloads {
             if !sel.is_empty() && sel.iter().all(|s| w.labels.contains(s)) {
-                edges += &format!("{key} -> {}\n", w.key);
+                out.edge(key, &w.key, "");
             }
         }
     }
-    if defs.is_empty() {
+    if out.nodes.is_empty() {
         return Err("No Deployments, Services or Ingresses found".into());
     }
-    Ok(format!("{defs}\n{edges}"))
+    Ok(out.code())
 }
 
 /// Maps a Terraform resource type to an icon; None = infrastructure noise we skip.
@@ -256,20 +291,20 @@ fn terraform(src: &str) -> Result<String, String> {
         return Err("No diagrammable Terraform resources found".into());
     }
     let key = |r: &Res| slug(&format!("{}_{}", r.ty.split('_').skip(1).collect::<Vec<_>>().join("_"), r.name));
-    let (mut defs, mut edges) = (String::new(), String::new());
+    let mut out = Out::default();
     for r in &res {
         let title = crate::icons::find(r.icon).map(|i| i.label).unwrap_or(&r.ty);
-        defs += &def(&key(r), r.icon, title, &r.name);
+        out.node(&key(r), r.icon, title, &r.name);
         for o in &res {
             if std::ptr::eq(o, r) {
                 continue;
             }
             if r.body.contains(&format!("{}.{}", o.ty, o.name)) {
-                edges += &format!("{} -> {}\n", key(r), key(o));
+                out.edge(&key(r), &key(o), "");
             }
         }
     }
-    Ok(format!("{defs}\n{edges}"))
+    Ok(out.code())
 }
 
 #[cfg(test)]

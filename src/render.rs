@@ -117,6 +117,24 @@ pub fn draw_doc(p: &Painter, ctx: &Context, doc: &Doc, v: &View, icons: &mut Ico
     for e in &doc.elements {
         draw_element(p, ctx, doc, e, v, icons, o);
     }
+    // popovers last so nothing covers them
+    for e in doc.elements.iter().filter(|e| o.open_comments.contains(&e.id)) {
+        let (anchor, txt) = match e.kind {
+            Kind::Comment => (v.w2s(e.rect.min) + vec2(20.0, -14.0), if e.text.is_empty() { "Empty comment — double-click to write" } else { e.text.as_str() }),
+            Kind::Node if !e.notes.trim().is_empty() && !e.show_notes => (v.w2s(pos2(e.rect.max.x, e.rect.min.y)) + vec2(12.0, 0.0), e.notes.as_str()),
+            _ => continue,
+        };
+        bubble(p, anchor, txt);
+    }
+}
+
+fn bubble(p: &Painter, at: Pos2, txt: &str) {
+    let g = p.layout(txt.to_string(), FontId::proportional(13.0), theme::text(), 280.0);
+    let b = Rect::from_min_size(at, g.size() + vec2(20.0, 16.0));
+    let sh = Shadow { offset: [0, 4], blur: 14, spread: 0, color: Color32::from_black_alpha(36) };
+    p.add(sh.as_shape(b, cr(10.0)));
+    p.rect(b, cr(10.0), theme::panel_bg(), Stroke::new(1.0, theme::panel_border()), StrokeKind::Inside);
+    p.galley(b.min + vec2(10.0, 8.0), g, theme::text());
 }
 
 pub fn draw_element(p: &Painter, ctx: &Context, doc: &Doc, e: &Element, v: &View, icons: &mut Icons, o: &Opts) {
@@ -188,15 +206,6 @@ pub fn draw_element(p: &Painter, ctx: &Context, doc: &Doc, e: &Element, v: &View
             if let Some(t) = icons.get(ctx, "t-comment") {
                 p.image(t, Rect::from_center_size(c, vec2(14.0, 14.0)), UV, Color32::WHITE);
             }
-            if o.open_comments.contains(&e.id) {
-                let txt = if e.text.is_empty() { "Empty comment — double-click to write" } else { &e.text };
-                let g = p.layout(txt.to_string(), FontId::proportional(13.0), theme::text(), 260.0);
-                let b = Rect::from_min_size(c + vec2(20.0, -14.0), g.size() + vec2(20.0, 16.0));
-                let sh = Shadow { offset: [0, 4], blur: 14, spread: 0, color: Color32::from_black_alpha(36) };
-                p.add(sh.as_shape(b, cr(10.0)));
-                p.rect(b, cr(10.0), theme::panel_bg(), Stroke::new(1.0, theme::panel_border()), StrokeKind::Inside);
-                p.galley(b.min + vec2(10.0, 8.0), g, theme::text());
-            }
         }
     }
 }
@@ -261,10 +270,22 @@ fn draw_node(p: &Painter, ctx: &Context, e: &Element, v: &View, icons: &mut Icon
     if e.show_cap {
         if let Some(c) = e.cap {
             let g = p.layout_no_wrap(c.badge(), FontId::monospace(10.5 * z), m(MUTED));
-            let top = v.w2s(pos2(r.center().x, r.max.y + 6.0 * (e.replicas.min(3)) as f32 + 4.0));
+            let top = v.w2s(pos2(r.center().x, r.max.y + node_extras(e).0));
             let b = Rect::from_min_size(pos2(top.x - g.size().x / 2.0 - 6.0 * z, top.y), g.size() + vec2(12.0 * z, 4.0 * z));
             p.rect(b, cr(4.0 * z), theme::map(Color32::from_rgb(0xf8, 0xfa, 0xfc), o.dark), Stroke::new(1.0, m(CARD_BORDER)), StrokeKind::Inside);
             p.galley(b.min + vec2(6.0 * z, 2.0 * z), g, m(MUTED));
+        }
+    }
+    if !e.notes.trim().is_empty() {
+        if e.show_notes {
+            let lines = node_notes(e);
+            let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
+            text_lines(p, v, &refs, r.center().x, r.max.y + node_extras(e).1, NOTE_SIZE, false, m(MUTED), 0.5, o.sketch);
+        } else {
+            // small "has notes" marker; full text on hover
+            let c = v.w2s(pos2(r.max.x - 12.0, r.max.y - 12.0));
+            p.circle_filled(c, 7.0 * z, m(tint(accent, 0.18)));
+            p.text(c, Align2::CENTER_CENTER, "i", FontId::proportional(10.0 * z), accent);
         }
     }
 }
@@ -276,7 +297,8 @@ pub fn arrow_state(doc: &Doc, e: &Element, failures: bool) -> (Color32, bool, Fl
         return (DOWN_RED.gamma_multiply(0.55), true, Flow::None);
     }
     if e.failover {
-        if failures {
+        // backup paths take over only when something is actually down
+        if failures && doc.any_down() {
             return (s.stroke, s.dashed, if s.flow == Flow::None { Flow::Dots } else { s.flow });
         }
         return (s.stroke.gamma_multiply(0.35), true, Flow::None);

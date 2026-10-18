@@ -212,6 +212,11 @@ pub struct Element {
     /// Diagram-as-code key (empty = derived from title).
     #[serde(default)]
     pub key: String,
+    /// Longer explanation for a component (hover, or shown under the card).
+    #[serde(default)]
+    pub notes: String,
+    #[serde(default)]
+    pub show_notes: bool,
 }
 
 impl Element {
@@ -256,6 +261,8 @@ impl Element {
             cap: None,
             show_cap: false,
             key: String::new(),
+            notes: String::new(),
+            show_notes: false,
         }
     }
 
@@ -372,7 +379,14 @@ impl Doc {
         match e.kind {
             Kind::Pen => bbox(&e.points),
             Kind::Arrow => bbox(&self.arrow_path(e)),
-            Kind::Node if e.replicas > 1 => e.rect.union(e.rect.translate(Vec2::splat(6.0 * (e.replicas.min(3) - 1) as f32))),
+            Kind::Node => {
+                let mut r = e.rect.union(e.rect.translate(Vec2::splat(6.0 * (e.replicas.max(1).min(3) - 1) as f32)));
+                let below = node_below_height(e);
+                if below > 0.0 {
+                    r.max.y = e.rect.max.y + below;
+                }
+                r
+            }
             _ => e.rect,
         }
     }
@@ -430,10 +444,13 @@ impl Doc {
             .elements
             .iter()
             .filter(|o| o.bindable() && Some(o.id) != e.from.id && Some(o.id) != e.to.id && area.intersects(o.rect))
-            .map(|o| o.rect)
+            .map(|o| self.bounds(o))
             .collect();
+        // whole footprint of each end (card + notes/badge below) so routes don't cut through them
+        let full = |end: &End, r: Rect| end.id.and_then(|id| self.get(id)).map_or(r, |x| self.bounds(x));
+        let (fa, fb) = (full(&e.from, a), full(&e.to, b));
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        for r in [a, b].iter().chain(&obstacles) {
+        for r in [a, b, fa, fb].iter().chain(&obstacles) {
             for f in [r.min.x, r.min.y, r.max.x, r.max.y] {
                 f.to_bits().hash(&mut h);
             }
@@ -444,7 +461,7 @@ impl Doc {
                 return p.clone();
             }
         }
-        let p = route(a, ka.is_some(), b, kb.is_some(), &obstacles);
+        let p = route(a, ka.is_some(), b, kb.is_some(), &obstacles, fa, fb);
         self.route_cache.borrow_mut().insert(e.id, (key, p.clone()));
         p
     }
@@ -481,6 +498,10 @@ impl Doc {
         }
     }
 
+    pub fn any_down(&self) -> bool {
+        self.elements.iter().any(|e| e.down)
+    }
+
     /// Is this arrow attached to a failed component?
     pub fn arrow_dead(&self, e: &Element) -> bool {
         [e.from.id, e.to.id].iter().flatten().any(|id| self.get(*id).is_some_and(|n| n.down))
@@ -507,7 +528,7 @@ fn sides(r: Rect, bound: bool) -> Vec<(Pos2, Vec2)> {
 /// Picks the cheapest right-angle route over all side pairs and L/Z shapes:
 /// length + bends, heavily penalising paths through other shapes or back through the endpoints.
 // ponytail: candidate search, not a full visibility-graph A*; add that if dense diagrams need it.
-fn route(a: Rect, ab: bool, b: Rect, bb: bool, obstacles: &[Rect]) -> Vec<Pos2> {
+fn route(a: Rect, ab: bool, b: Rect, bb: bool, obstacles: &[Rect], fa: Rect, fb: Rect) -> Vec<Pos2> {
     let mut best = (f32::MAX, vec![a.center(), b.center()]);
     for (s, ds) in sides(a, ab) {
         for (t, dt) in sides(b, bb) {
@@ -519,7 +540,7 @@ fn route(a: Rect, ab: bool, b: Rect, bb: bool, obstacles: &[Rect]) -> Vec<Pos2> 
                 p.push(t1);
                 p.push(t);
                 let p = simplify(p);
-                let c = route_cost(&p, a, ab, b, bb, obstacles);
+                let c = route_cost(&p, fa, ab, fb, bb, obstacles);
                 if c < best.0 - 0.01 {
                     best = (c, p);
                 }
@@ -748,7 +769,8 @@ pub fn edge_weight(e: &Element) -> (f32, f32) {
     match traffic(&e.text) {
         Some(rps) => {
             let l = rps.max(1.0).log10();
-            (e.style.width * (1.0 + (l - 1.0).clamp(0.0, 4.0) * 0.45), (1.0 + (l / 1.5).floor()).clamp(1.0, 3.0))
+            // speed stays an integer multiple so GIF loops remain seamless
+            (e.style.width * (1.0 + (l - 1.0).clamp(0.0, 4.0) * 0.35), if rps >= 1000.0 { 2.0 } else { 1.0 })
         }
         None => (e.style.width, 1.0),
     }
@@ -889,6 +911,51 @@ pub struct NodeLayout {
 pub fn node_layout(r: Rect) -> NodeLayout {
     let tile = Rect::from_min_size(pos2(r.min.x + 12.0, r.center().y - 16.0), vec2(32.0, 32.0));
     NodeLayout { tile, icon: tile.shrink(6.0), text_x: tile.max.x + 10.0 }
+}
+
+pub const NOTE_SIZE: f32 = 11.5;
+
+/// Greedy word wrap by character count (same in live view and exports).
+pub fn wrap(text: &str, max_chars: usize) -> Vec<String> {
+    let mut out = vec![];
+    for para in text.lines() {
+        let mut line = String::new();
+        for w in para.split_whitespace() {
+            if !line.is_empty() && line.chars().count() + 1 + w.chars().count() > max_chars {
+                out.push(std::mem::take(&mut line));
+            }
+            if !line.is_empty() {
+                line.push(' ');
+            }
+            line.push_str(w);
+        }
+        out.push(line);
+    }
+    out
+}
+
+/// Notes wrapped to the card's width.
+pub fn node_notes(e: &Element) -> Vec<String> {
+    wrap(&e.notes, ((e.rect.width() - 8.0) / (NOTE_SIZE * 0.55)).max(12.0) as usize)
+}
+
+/// Offset below the card where extras start (replica stack), then badge, then notes.
+pub fn node_extras(e: &Element) -> (f32, f32) {
+    let stack = 6.0 * (e.replicas.max(1).min(3) - 1) as f32;
+    let badge_top = stack + 8.0;
+    let notes_top = badge_top + if e.show_cap && e.cap.is_some() { 26.0 } else { 0.0 };
+    (badge_top, notes_top)
+}
+
+fn node_below_height(e: &Element) -> f32 {
+    let (badge, notes) = node_extras(e);
+    if e.show_notes && !e.notes.trim().is_empty() {
+        notes + node_notes(e).len() as f32 * NOTE_SIZE * LINE_H + 4.0
+    } else if e.show_cap && e.cap.is_some() {
+        badge + 22.0
+    } else {
+        0.0
+    }
 }
 
 pub const NODE_TITLE: f32 = 14.0;
@@ -1050,6 +1117,11 @@ mod tests {
         assert_eq!((x, a), (110., 0.0));
         let (_, top, _) = text_place(r, TextPos::Bottom, true, s, 10.);
         assert!(top > 60.);
+    }
+
+    #[test]
+    fn wraps_words() {
+        assert_eq!(wrap("handles checkout and payment retries", 16), vec!["handles checkout", "and payment", "retries"]);
     }
 
     #[test]

@@ -184,9 +184,6 @@ impl App {
                     if icon_button(ui, &mut self.icons, "t-code", self.code_open, "Diagram as code  ⌘/").clicked() {
                         self.code_open = !self.code_open;
                     }
-                    if icon_button(ui, &mut self.icons, "wand", false, "Auto-layout  ⇧⌘L").clicked() {
-                        self.auto_layout(false);
-                    }
                 });
             });
         });
@@ -265,7 +262,7 @@ impl App {
                     self.quality = q;
                 }
                 let scope = if self.sel.is_empty() { "whole canvas" } else { "selection only" };
-                ui.label(RichText::new(format!("Exports {scope} · {} theme{}", if self.dark { "dark" } else { "light" }, if self.failures { " · failure view" } else { "" })).small().color(theme::muted()));
+                ui.label(RichText::new(format!("Exports {scope} · {} theme{}", if self.dark { "dark" } else { "light" }, if self.failures { " · outage view" } else { "" })).small().color(theme::muted()));
                 ui.add_space(4.0);
                 for (fmt, label, sub) in [("png", "PNG image", "best for docs"), ("svg", "SVG vector", "infinitely sharp"), ("gif", "Animated GIF", "loops flow animation")] {
                     if ui.add(egui::Button::new(RichText::new(label).strong()).shortcut_text(sub).frame(false).min_size(vec2(PANEL_W + 10.0, 30.0))).clicked() {
@@ -381,7 +378,6 @@ impl App {
         type Edit = Box<dyn Fn(&mut Element)>;
         let mut change: Option<Edit> = None;
         let mut action = "";
-        let mut show_failures = false;
         let max_h = (self.canvas.height() - 150.0).max(200.0);
         egui::Area::new(Id::new("props")).anchor(Align2::LEFT_TOP, vec2(12.0, 62.0)).show(ctx, |ui| {
             panel().inner_margin(Margin::same(12)).show(ui, |ui| {
@@ -461,23 +457,36 @@ impl App {
                             change = Some(Box::new(move |e| e.style.flow = f));
                         }
                         let mut fo = first.failover;
-                        if ui.checkbox(&mut fo, "Failover path (lights up in failure view)").changed() {
+                        if ui.checkbox(&mut fo, "Backup path").changed() {
                             change = Some(Box::new(move |e| e.failover = fo));
                         }
+                        ui.label(RichText::new("Stays faint normally. Takes over when you simulate an outage (F).").small().color(theme::muted()));
                         let hint = match traffic(&first.text) {
                             Some(r) => format!("Traffic {} rps → thicker, faster", short_num(r)),
                             None => "Tip: label it \"1.2k rps\" to scale width & speed".into(),
                         };
                         ui.label(RichText::new(hint).small().color(theme::muted()));
                     }
-                    if has(&[Kind::Node, Kind::Rect, Kind::Ellipse, Kind::Diamond]) {
-                        section(ui, "Failure simulation");
-                        let mut down = first.down;
-                        if ui.checkbox(&mut down, "Mark as down").changed() {
-                            change = Some(Box::new(move |e| e.down = down));
-                            show_failures = down;
+                    if has(&[Kind::Node]) && self.sel.len() == 1 {
+                        section(ui, "Notes");
+                        let mut notes = first.notes.clone();
+                        let r = ui.add(TextEdit::multiline(&mut notes).hint_text("Explain what this does, owners, SLAs…").desired_rows(3).desired_width(f32::INFINITY));
+                        if r.gained_focus() {
+                            self.checkpoint();
                         }
-                        ui.label(RichText::new(if self.failures { "Failure view on · F to hide" } else { "Shown in failure view · press F" }).small().color(theme::muted()));
+                        if r.changed() {
+                            let id = first.id;
+                            if let Some(e) = self.doc.get_mut(id) {
+                                e.notes = notes;
+                            }
+                        }
+                        let mut show = first.show_notes;
+                        if ui.checkbox(&mut show, "Show under the component").changed() {
+                            change = Some(Box::new(move |e| e.show_notes = show));
+                        }
+                        if !first.notes.is_empty() && !first.show_notes {
+                            ui.label(RichText::new("Hover the component to read them").small().color(theme::muted()));
+                        }
                     }
                     if has(&[Kind::Node]) {
                         section(ui, "Replicas");
@@ -539,9 +548,6 @@ impl App {
                                 action = a;
                             }
                         }
-                        if self.sel.len() > 1 && icon_button(ui, &mut self.icons, "wand", false, "Auto-layout selection").clicked() {
-                            action = "layout";
-                        }
                     });
                 });
             });
@@ -554,11 +560,7 @@ impl App {
                 }
             }
         }
-        // marking something down should be visible right away
-        if show_failures && !self.failures {
-            self.failures = true;
-            self.toast(ctx, "Failure view on: press F to toggle");
-        }
+
         match action {
             "icon" => {
                 self.library = true;
@@ -616,7 +618,7 @@ impl App {
             panel().show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
-                    if icon_button(ui, &mut self.icons, "alert", self.failures, "Failure view  F — show components marked down and failover paths").clicked() {
+                    if icon_button(ui, &mut self.icons, "alert", self.failures, "Simulate an outage  F").clicked() {
                         act = Some("failures");
                     }
                     if icon_button(ui, &mut self.icons, "film", self.scn_panel, "Scenarios — record & play request flows").clicked() {
@@ -626,6 +628,10 @@ impl App {
                         let (icon, tip) = if self.playing { ("pause", "Pause flow animation") } else { ("play", "Play flow animation") };
                         if icon_button(ui, &mut self.icons, icon, self.playing, tip).clicked() {
                             self.playing = !self.playing;
+                        }
+                        let i = SPEEDS.iter().position(|s| (s.0 - self.flow_speed).abs() < 0.01).unwrap_or(1);
+                        if ui.add(egui::Button::new(RichText::new(SPEEDS[i].1).size(12.0).color(theme::text())).frame(false).min_size(vec2(54.0, 34.0))).on_hover_text("Animation speed: click to change").clicked() {
+                            self.flow_speed = SPEEDS[(i + 1) % SPEEDS.len()].0;
                         }
                     }
                     if icon_button(ui, &mut self.icons, "users", self.collab.is_some(), "Collaborate live").clicked() {
@@ -761,6 +767,52 @@ impl App {
                     self.export(ctx, "gif", Some(i));
                 }
             }
+            _ => {}
+        }
+    }
+
+    /// Context bars for the pen tool and outage simulation.
+    pub(super) fn mode_bars(&mut self, ctx: &Context) {
+        let mut act = "";
+        if self.failures {
+            let down = self.doc.elements.iter().filter(|e| e.down).count();
+            egui::Area::new(Id::new("outage")).anchor(Align2::CENTER_TOP, vec2(-self.code_w / 2.0, 64.0)).order(Order::Foreground).show(ctx, |ui| {
+                panel().inner_margin(Margin::symmetric(14, 8)).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("⚠  Outage simulation").color(theme::RED).strong());
+                        ui.label(RichText::new(if down == 0 { "Click any component to take it down".to_string() } else { format!("{down} down · their connections stop, backup paths take over · click again to restore") }).color(theme::muted()));
+                        if down > 0 && ui.button("Restore all").clicked() {
+                            act = "restore";
+                        }
+                        if ui.add(egui::Button::new(RichText::new("Done").color(Color32::WHITE)).fill(theme::INDIGO)).clicked() {
+                            act = "done";
+                        }
+                    });
+                });
+            });
+        } else if self.tool == Tool::Pen {
+            let n = self.doc.elements.iter().filter(|e| e.kind == Kind::Pen).count();
+            egui::Area::new(Id::new("penbar")).anchor(Align2::CENTER_TOP, vec2(-self.code_w / 2.0, 64.0)).order(Order::Foreground).show(ctx, |ui| {
+                panel().inner_margin(Margin::symmetric(14, 6)).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Drawing").strong());
+                        ui.label(RichText::new("Esc to stop").color(theme::muted()));
+                        if ui.add_enabled(n > 0, egui::Button::new(format!("Clear all drawings ({n})"))).clicked() {
+                            act = "clear";
+                        }
+                    });
+                });
+            });
+        }
+        match act {
+            "restore" => {
+                self.checkpoint();
+                for e in &mut self.doc.elements {
+                    e.down = false;
+                }
+            }
+            "done" => self.failures = false,
+            "clear" => self.run(ctx, "clear-ink"),
             _ => {}
         }
     }
@@ -1036,8 +1088,14 @@ impl App {
                         }
                     });
                 });
-                ui.label(RichText::new("Edits sync both ways. Paste Mermaid to convert it.").small().color(theme::muted()));
+                ui.label(RichText::new("Write one connection per line. The canvas updates as you type, and drawing updates the text.").color(theme::muted()));
                 ui.add_space(4.0);
+                Frame::new().fill(theme::hover()).corner_radius(8).inner_margin(Margin::same(10)).show(ui, |ui| {
+                    ui.label(RichText::new("Users -> API Gateway -> Orders\nOrders -> Postgres : SQL\nOrders => Kafka").monospace().size(12.0));
+                    ui.add_space(2.0);
+                    ui.label(RichText::new("->  arrow     =>  animated     -->  dashed\n:   adds a label    Postgres, S3, Lambda… get their icon").small().color(theme::muted()));
+                });
+                ui.add_space(6.0);
                 let h = ui.available_height() - 60.0;
                 let mut resp = None;
                 egui::ScrollArea::vertical().max_height(h).show(ui, |ui| {
@@ -1062,7 +1120,7 @@ impl App {
                 }
                 match &self.code_err {
                     Some(e) => ui.label(RichText::new(format!("⚠ {e}")).color(theme::RED).small()),
-                    None => ui.label(RichText::new("icons: any library id, e.g. aws-lambda, gcp-bigquery, az-cosmos, oss-kafka").small().color(theme::muted())),
+                    None => ui.label(RichText::new("Tip: paste a Mermaid flowchart to convert it").small().color(theme::muted())),
                 };
             });
         self.code_w = r.response.rect.width();

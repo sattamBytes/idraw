@@ -60,6 +60,9 @@ const FILLS: [Color32; 8] = [
     Color32::from_rgb(0xf1, 0xf5, 0xf9),
 ];
 
+/// Flow speed presets: (multiplier, label).
+pub(crate) const SPEEDS: [(f32, &str); 3] = [(0.3, "Slow"), (0.55, "Normal"), (1.0, "Fast")];
+
 /// (label, shortcut, action) for the command palette.
 pub(crate) const COMMANDS: &[(&str, &str, &str)] = &[
     ("Auto-layout: left → right", "⇧⌘L", "layout"),
@@ -67,7 +70,8 @@ pub(crate) const COMMANDS: &[(&str, &str, &str)] = &[
     ("Diagram as code", "⌘/", "code"),
     ("Record a request scenario", "", "record"),
     ("Scenarios…", "", "scenarios"),
-    ("Toggle failure view", "F", "failures"),
+    ("Simulate an outage", "F", "failures"),
+    ("Clear all pen drawings", "", "clear-ink"),
     ("Toggle dark mode", "⇧⌘D", "dark"),
     ("Toggle sketch (hand-drawn) style", "⇧⌘K", "sketch"),
     ("Insert component at cursor", "/", "picker"),
@@ -152,6 +156,7 @@ pub struct App {
     // v0.2
     dark: bool,
     failures: bool,
+    flow_speed: f32,
     quality: Quality,
     palette: Option<Palette>,
     picker: Option<Picker>,
@@ -220,6 +225,7 @@ impl App {
             nudge: None,
             dark,
             failures: false,
+            flow_speed: st.and_then(|s| s.get_string("speed")).and_then(|v| v.parse().ok()).unwrap_or(SPEEDS[1].0),
             quality: Quality::UltraHd,
             palette: None,
             picker: None,
@@ -515,7 +521,18 @@ impl App {
                 self.checkpoint();
                 self.doc.sketch = !self.doc.sketch;
             }
-            "failures" => self.failures = !self.failures,
+            "failures" => {
+                self.failures = !self.failures;
+                self.sel.clear();
+            }
+            "clear-ink" => {
+                let ink: Vec<u64> = self.doc.elements.iter().filter(|e| e.kind == Kind::Pen).map(|e| e.id).collect();
+                if !ink.is_empty() {
+                    self.checkpoint();
+                    self.doc.remove(&ink);
+                    self.toast(ctx, format!("Cleared {} drawings · ⌘Z to undo", ink.len()));
+                }
+            }
             "code" => self.code_open = !self.code_open,
             "record" => self.start_record(),
             "scenarios" => self.scn_panel = !self.scn_panel,
@@ -547,6 +564,9 @@ impl App {
             "del" => self.delete_selected(),
             "palette" => self.palette = Some(Palette { query: String::new(), sel: 0, focus: true }),
             "esc" => {
+                if std::mem::take(&mut self.failures) {
+                    return;
+                }
                 if self.rec.take().is_some() || self.scn_play.take().is_some() || self.picker.take().is_some() {
                     return;
                 }
@@ -630,7 +650,7 @@ impl App {
             None => stem,
         };
         let Some(p) = rfd::FileDialog::new().add_filter(fmt, &[fmt]).set_file_name(format!("{stem}.{fmt}")).save_file() else { return };
-        let (doc, only, q, look) = (self.doc.clone(), self.sel.clone(), self.quality, Look { dark: self.dark, failures: self.failures });
+        let (doc, only, q, look) = (self.doc.clone(), self.sel.clone(), self.quality, Look { dark: self.dark, failures: self.failures, speed: self.flow_speed });
         let ctx2 = ctx.clone();
         let (tx, rx) = channel();
         self.export_rx = Some(rx);
@@ -939,6 +959,22 @@ impl App {
             return;
         }
         if presenting {
+            if resp.dragged() {
+                self.offset += resp.drag_delta();
+            }
+            return;
+        }
+        // outage simulation: click a component to take it down / bring it back
+        if self.failures {
+            if resp.clicked() {
+                let w = v.s2w(resp.interact_pointer_pos().unwrap_or_default());
+                if let Some(id) = self.doc.hit_bindable(w, None) {
+                    self.checkpoint();
+                    if let Some(e) = self.doc.get_mut(id) {
+                        e.down = !e.down;
+                    }
+                }
+            }
             if resp.dragged() {
                 self.offset += resp.drag_delta();
             }
@@ -1304,6 +1340,7 @@ impl eframe::App for App {
         }
         storage.set_string("dark", if self.dark { "1" } else { "0" }.into());
         storage.set_string("name", self.my_name.clone());
+        storage.set_string("speed", self.flow_speed.to_string());
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -1362,7 +1399,7 @@ impl eframe::App for App {
             let space = ctx.input(|i| i.key_down(Key::Space)) && !ctx.wants_keyboard_input();
             if matches!(self.drag, Drag::Pan) || space || self.tool == Tool::Hand {
                 ctx.set_cursor_icon(if matches!(self.drag, Drag::Pan) { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
-            } else if self.rec.is_some() {
+            } else if self.rec.is_some() || self.failures {
                 ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
             } else if !matches!(self.tool, Tool::Select) {
                 ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
@@ -1371,8 +1408,11 @@ impl eframe::App for App {
             let p = ui.painter_at(rect);
             let v = self.view();
             render::draw_grid(&p, rect, &v);
-            let phase = if self.playing { (now as f32 % LOOP_SECS) / LOOP_SECS } else { 0.0 };
-            let hover_comment = resp.hover_pos().and_then(|h| self.doc.hit(v.s2w(h), 4.0 / self.zoom)).filter(|id| self.doc.get(*id).is_some_and(|e| e.kind == Kind::Comment));
+            let phase = if self.playing { ((now as f32 * self.flow_speed) % LOOP_SECS) / LOOP_SECS } else { 0.0 };
+            let hover_comment = resp
+                .hover_pos()
+                .and_then(|h| self.doc.hit(v.s2w(h), 4.0 / self.zoom))
+                .filter(|id| self.doc.get(*id).is_some_and(|e| e.kind == Kind::Comment || (e.kind == Kind::Node && !e.notes.is_empty())));
             let mut open: Vec<u64> = self.sel.iter().copied().chain(hover_comment).chain(self.editing).collect();
             open.dedup();
             let opts = Opts { phase, dark: self.dark, sketch: self.doc.sketch, failures: self.failures, hide_text: self.editing, open_comments: &open };
@@ -1405,7 +1445,7 @@ impl eframe::App for App {
         self.top_left(ctx);
         self.top_right(ctx);
         self.library_panel(ctx);
-        if self.scn_play.is_none() && self.rec.is_none() {
+        if self.scn_play.is_none() && self.rec.is_none() && !self.failures {
             self.props_panel(ctx);
         }
         self.bottom_bars(ctx);
@@ -1418,6 +1458,7 @@ impl eframe::App for App {
         self.toast_view(ctx);
 
         let animating = self.anim.is_some() || (self.playing && self.doc.elements.iter().any(|e| e.kind == Kind::Arrow && (e.style.flow != Flow::None || (self.failures && e.failover))));
+        self.mode_bars(ctx);
         if animating {
             ctx.request_repaint();
         }
