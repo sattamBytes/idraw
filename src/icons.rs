@@ -20,6 +20,7 @@ pub struct Icon {
 }
 
 pub const CATEGORIES: &[&str] = &[
+    "Shapes",
     "Boundaries",
     "Clients",
     "Network",
@@ -54,6 +55,7 @@ pub fn accent(cat: &str) -> Color32 {
         "Cloudflare" => h(0xe8710f),
         "Other clouds" => h(0x0891b2),
         "Open source" => h(0x475569),
+        "Shapes" => h(0x1f2937),
         _ => h(0x475569),
     }
 }
@@ -386,6 +388,15 @@ const SERVICES: &[(&str, &str, &str, &str, &str)] = &[
     ("oss-grpc", "gRPC", "Open source", "api", "RPC"),
 ];
 
+/// Plain drawing shapes offered next to components: (id, label, glyph).
+pub const SHAPES: &[(&str, &str, &str)] = &[
+    ("shape-rect", "Rectangle", "t-rect"),
+    ("shape-ellipse", "Ellipse", "t-ellipse"),
+    ("shape-diamond", "Diamond", "t-diamond"),
+    ("shape-sticky", "Sticky note", "t-sticky"),
+    ("shape-text", "Text", "t-text"),
+];
+
 /// Boundary presets: (id, label, header glyph, color, dashed).
 pub const BOUNDARIES: &[(&str, &str, &str, u32, bool)] = &[
     ("b-cloud", "Cloud", "cloud", 0x0284c7, true),
@@ -414,6 +425,7 @@ pub fn all() -> &'static [Icon] {
     static ALL: OnceLock<Vec<Icon>> = OnceLock::new();
     ALL.get_or_init(|| {
         let mut v: Vec<Icon> = GLYPHS.iter().map(|g| Icon { id: g.0, label: g.1, cat: g.2, svg: g.3, sub: "", color: false }).collect();
+        v.extend(SHAPES.iter().map(|s| Icon { id: s.0, label: s.1, cat: "Shapes", svg: glyph(s.2), sub: "", color: false }));
         v.extend(BOUNDARIES.iter().map(|b| Icon { id: b.0, label: b.1, cat: "Boundaries", svg: glyph(b.2), sub: "", color: false }));
         v.extend(SERVICES.iter().map(|s| Icon { id: s.0, label: s.1, cat: s.2, svg: glyph(s.3), sub: s.4, color: false }));
         v.extend(load_custom());

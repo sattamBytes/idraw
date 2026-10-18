@@ -229,7 +229,7 @@ pub fn guess_icon(name: &str) -> &'static str {
 /// Best library icon for a component name: exact service name first ("S3", "Lambda"), then a guess.
 pub fn best_icon(name: &str) -> String {
     let n = name.to_lowercase();
-    let lib = crate::icons::all().iter().filter(|i| !matches!(i.cat, "ui" | "glyph" | "Boundaries") && !i.color);
+    let lib = crate::icons::all().iter().filter(|i| !matches!(i.cat, "ui" | "glyph" | "Boundaries" | "Shapes") && !i.color);
     for i in lib {
         let id_tail = i.id.split_once('-').map(|x| x.1).unwrap_or(i.id);
         if i.label.to_lowercase() == n || id_tail == n {

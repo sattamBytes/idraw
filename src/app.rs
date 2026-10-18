@@ -482,6 +482,17 @@ impl App {
         if let Some(b) = icons::BOUNDARIES.iter().find(|b| b.0 == icon) {
             return self.add_select(region_element(b.1, b.2, icons::boundary_color(b.3), b.4, at));
         }
+        if let Some(tool) = shape_tool(icon) {
+            if tool == Tool::Text {
+                let e = Element::new(Kind::Text, Rect::from_min_size(at - vec2(20.0, 12.0), Vec2::ZERO));
+                let id = self.add_select(e);
+                self.editing = Some(id);
+                self.edit_focus = true;
+                return id;
+            }
+            let e = self.new_shape(tool, Rect::from_center_size(at, Self::default_size(tool)));
+            return self.add_select(e);
+        }
         self.add_select(Element::node(icon, at))
     }
 
@@ -1590,6 +1601,30 @@ impl App {
     }
 }
 
+/// Tool behind a plain-shape catalog id ("shape-rect" …).
+pub(crate) fn shape_tool(id: &str) -> Option<Tool> {
+    Some(match id {
+        "shape-rect" => Tool::Rect,
+        "shape-ellipse" => Tool::Ellipse,
+        "shape-diamond" => Tool::Diamond,
+        "shape-sticky" => Tool::Sticky,
+        "shape-text" => Tool::Text,
+        _ => return None,
+    })
+}
+
+/// Catalog id for a toolbar shape tool, so the button can be dragged onto the canvas.
+pub(crate) fn tool_shape_id(t: Tool) -> Option<&'static str> {
+    Some(match t {
+        Tool::Rect => "shape-rect",
+        Tool::Ellipse => "shape-ellipse",
+        Tool::Diamond => "shape-diamond",
+        Tool::Sticky => "shape-sticky",
+        Tool::Text => "shape-text",
+        _ => return None,
+    })
+}
+
 pub(crate) fn peer_color(id: u32) -> Color32 {
     const C: [Color32; 6] = [
         Color32::from_rgb(0xe1, 0x1d, 0x48),
@@ -1730,6 +1765,7 @@ impl eframe::App for App {
         self.top_left(ctx);
         self.top_right(ctx);
         self.library_panel(ctx);
+        self.drag_ghost(ctx);
         if self.scn_play.is_none() && self.rec.is_none() && !self.failures {
             self.props_panel(ctx);
         }

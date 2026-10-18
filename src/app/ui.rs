@@ -15,7 +15,12 @@ pub(super) fn panel() -> Frame {
 }
 
 pub(super) fn icon_button(ui: &mut Ui, icons: &mut Icons, icon: &str, active: bool, tip: &str) -> Response {
-    let (rect, resp) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::click());
+    icon_button_sense(ui, icons, icon, active, tip, Sense::click())
+}
+
+/// Icon button that can also be dragged (toolbar shapes onto the canvas).
+pub(super) fn icon_button_sense(ui: &mut Ui, icons: &mut Icons, icon: &str, active: bool, tip: &str, sense: Sense) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(34.0, 34.0), sense);
     let bg = if active {
         theme::active_bg()
     } else if resp.hovered() {
@@ -203,8 +208,15 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
                     for (t, icon, tip, _) in TOOLS {
-                        if icon_button(ui, &mut self.icons, icon, self.tool == t, tip).clicked() {
+                        let shape = tool_shape_id(t);
+                        let tip = if shape.is_some() { format!("{tip}\nClick to draw, or drag onto the canvas") } else { tip.to_string() };
+                        let sense = if shape.is_some() { Sense::click_and_drag() } else { Sense::click() };
+                        let r = icon_button_sense(ui, &mut self.icons, icon, self.tool == t, &tip, sense);
+                        if r.clicked() {
                             self.tool = t;
+                        }
+                        if let (true, Some(id)) = (r.drag_started(), shape) {
+                            self.lib_drag = Some(id);
                         }
                     }
                     ui.add_space(4.0);
@@ -367,7 +379,7 @@ impl App {
                 let (mut custom_pick, mut custom_edit, mut custom_del, mut custom_new) = (None, None, None, false);
                 egui::ScrollArea::vertical().max_height(h).show(ui, |ui| {
                     for cat in icons::categories() {
-                        if self.lib_filter.is_some_and(|f| f != cat) || (self.replace_icon && cat == "Boundaries") {
+                        if self.lib_filter.is_some_and(|f| f != cat) || (self.replace_icon && (cat == "Boundaries" || cat == "Shapes")) {
                             continue;
                         }
                         let items: Vec<&icons::Icon> = icons::all().iter().filter(|i| i.cat == cat && (q.is_empty() || matches(&q, &format!("{} {} {} {}", i.id, i.label, i.sub, i.cat)))).collect();
@@ -446,13 +458,41 @@ impl App {
             }
             None => {}
         }
-        if let (Some(icon), Some(p)) = (self.lib_drag, ctx.input(|i| i.pointer.hover_pos())) {
-            let painter = ctx.layer_painter(egui::LayerId::new(Order::Tooltip, Id::new("ghost")));
-            let r = Rect::from_center_size(p, vec2(176.0, 56.0) * self.zoom);
-            painter.rect(r, CornerRadius::same(12), theme::panel_bg().gamma_multiply(0.9), Stroke::new(1.5, theme::INDIGO), StrokeKind::Inside);
-            if let (Some(t), Some(it)) = (self.icons.get(ctx, icon), icons::find(icon)) {
-                painter.image(t, Rect::from_center_size(r.center(), vec2(24.0, 24.0)), render::UV, if it.color { Color32::WHITE } else { icons::accent(it.cat) });
+    }
+
+    /// Preview of whatever is being dragged from the library or toolbar.
+    pub(super) fn drag_ghost(&mut self, ctx: &Context) {
+        let (Some(icon), Some(p)) = (self.lib_drag, ctx.input(|i| i.pointer.hover_pos())) else { return };
+        let painter = ctx.layer_painter(egui::LayerId::new(Order::Tooltip, Id::new("ghost")));
+        let fill = theme::panel_bg().gamma_multiply(0.85);
+        let st = Stroke::new(1.5, theme::INDIGO);
+        if let Some(tool) = shape_tool(icon) {
+            let r = Rect::from_center_size(p, Self::default_size(tool) * self.zoom);
+            match tool {
+                Tool::Ellipse => {
+                    let pts: Vec<Pos2> = (0..48).map(|i| { let a = i as f32 / 48.0 * std::f32::consts::TAU; r.center() + vec2(a.cos() * r.width() / 2.0, a.sin() * r.height() / 2.0) }).collect();
+                    painter.add(egui::Shape::convex_polygon(pts, fill, st));
+                }
+                Tool::Diamond => {
+                    let c = r.center();
+                    painter.add(egui::Shape::convex_polygon(vec![pos2(c.x, r.min.y), pos2(r.max.x, c.y), pos2(c.x, r.max.y), pos2(r.min.x, c.y)], fill, st));
+                }
+                Tool::Text => {
+                    painter.text(p, Align2::CENTER_CENTER, "Text", FontId::proportional(18.0 * self.zoom), theme::INDIGO);
+                }
+                Tool::Sticky => {
+                    painter.rect(r, CornerRadius::same(4), STICKY_YELLOW.gamma_multiply(0.85), st, StrokeKind::Inside);
+                }
+                _ => {
+                    painter.rect(r, CornerRadius::same(10), fill, st, StrokeKind::Inside);
+                }
             }
+            return;
+        }
+        let r = Rect::from_center_size(p, vec2(176.0, 56.0) * self.zoom);
+        painter.rect(r, CornerRadius::same(12), fill, st, StrokeKind::Inside);
+        if let (Some(t), Some(it)) = (self.icons.get(ctx, icon), icons::find(icon)) {
+            painter.image(t, Rect::from_center_size(r.center(), vec2(24.0, 24.0)), render::UV, if it.color { Color32::WHITE } else { icons::accent(it.cat) });
         }
     }
 
@@ -1186,8 +1226,13 @@ impl App {
             out.push(("::twin".to_string(), "Same as source".to_string(), "duplicate and connect".to_string()));
         }
         if query.is_empty() {
-            let cat = connect.and_then(|(_, src)| self.doc.get(src)).and_then(|e| icons::find(&e.icon)).map(|i| i.cat).unwrap_or("");
-            for id in suggest(cat) {
+            let src = connect.and_then(|(_, src)| self.doc.get(src));
+            let cat = src.and_then(|e| icons::find(&e.icon)).map(|i| i.cat).unwrap_or("");
+            let from_shape = src.is_some_and(|e| e.kind != Kind::Node);
+            let shapes = ["shape-rect", "shape-ellipse", "shape-diamond", "shape-sticky"];
+            // plain shapes always on offer; first when you started from one
+            let ids: Vec<&str> = if from_shape || connect.is_none() { shapes.iter().copied().chain(suggest(cat).iter().copied()).collect() } else { suggest(cat).iter().copied().chain(shapes).collect() };
+            for id in ids {
                 if let Some(i) = icons::find(id) {
                     out.push((i.id.to_string(), i.label.to_string(), if i.sub.is_empty() { i.cat.to_string() } else { i.sub.to_string() }));
                 }
