@@ -11,7 +11,7 @@ idraw is a diagram app. A `.idraw` file is JSON. You write it by hand, render it
 
 ```bash
 idraw render diagram.idraw            # → diagram.png (2x). Also: -o out.svg | out.gif, --dark, --4k
-idraw check diagram.idraw             # broken ids, unknown icons, overlaps, text that won't fit
+idraw check diagram.idraw             # broken ids, unknown icons, plus layout issues with exact fixes
 idraw icons kafka                     # find icon ids: idraw icons aws queue / idraw icons database
 ```
 
@@ -21,8 +21,8 @@ If `idraw` isn't on PATH, use `/Applications/idraw.app/Contents/MacOS/idraw` or 
 
 1. **Plan the story before coordinates.** What should someone understand in 5 seconds? Pick a layout that tells it (see below). Sketch the grid in your head: columns, rows, which boundary holds what.
 2. **Write the file.** Use string ids (`"id": "api"`) and connect by id. Start from `examples/` in this skill if one is close (each has a rendered `.png` next to it).
-3. **`idraw check`** and fix every error. Treat overlap / cut-off warnings as real.
-4. **`idraw render`, then open the PNG with your image-reading tool and actually look.** Ask:
+3. **`idraw check`** and fix everything it reports. Besides errors it lists `layout:` issues (shapes a few px off the same row, lines that detour or leave from the wrong side, lines crossing or running over boxes, labels hiding lines or sitting on boxes, shapes squeezed together), each with the exact change to make (`set y of "cache" to 220`, `pin it with "from": {"id": "api", "side": "right"}`, `set "label_t": 0.3`). Apply them and run `check` again until it's clean; a fix can reveal the next issue.
+4. **`idraw render`, then open the PNG with your image-reading tool and actually look.** `check` catches geometry, not taste. Ask:
    - Can I follow the main path without hunting? Do lines cross or tangle?
    - Is anything cramped, cut off, or floating with no reason?
    - Is spacing even? Do columns and rows line up?

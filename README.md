@@ -79,7 +79,7 @@ Every diagram below is a plain `.idraw` file in [`examples/`](examples). Open on
 
 ```bash
 idraw render diagram.idraw         # → diagram.png  (-o out.svg | out.gif, --dark, --4k)
-idraw check diagram.idraw          # bad ids, unknown icons, overlaps, text that won't fit
+idraw check diagram.idraw          # problems + exact fixes: misaligned rows, detours, crossings, hidden labels…
 idraw icons kafka                  # find icon ids
 ```
 
