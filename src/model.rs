@@ -1184,31 +1184,43 @@ impl Rng {
     }
 }
 
-/// Two wobbly strokes tracing `pts`, deterministic per seed.
+/// Two hand-drawn strokes tracing `pts`, deterministic per seed (rough.js-like):
+/// each pass is a smooth, gently bowed line (no jitter), slightly offset from the other;
+/// closed outlines start at a random spot and overshoot a little past where they began.
 pub fn rough(pts: &[Pos2], closed: bool, seed: u64, amp: f32) -> Vec<Vec<Pos2>> {
+    use std::f32::consts::{PI, TAU};
     let mut src = pts.to_vec();
-    if closed && !src.is_empty() {
+    if closed && src.len() > 1 {
         src.push(src[0]);
     }
-    (0..2)
+    let total = path_len(&src);
+    if src.len() < 2 || total < 1.0 {
+        return vec![src];
+    }
+    (0..2u64)
         .map(|pass| {
-            let mut rng = Rng::new(seed * 31 + pass);
-            let mut out = vec![];
-            for w in src.windows(2) {
-                let l = w[0].distance(w[1]);
-                let n = (l / 18.0).ceil().max(1.0) as usize;
-                let perp = if l > 0.0 { vec2(-(w[1] - w[0]).y, (w[1] - w[0]).x) / l } else { Vec2::ZERO };
-                let bow = rng.f() * amp * (l / 120.0).min(1.5);
-                for k in 0..n {
-                    let t = k as f32 / n as f32;
-                    let arc = (t * std::f32::consts::PI).sin() * bow;
-                    out.push(w[0] + (w[1] - w[0]) * t + perp * (arc + rng.f() * amp * 0.35));
-                }
-            }
-            if let Some(l) = src.last() {
-                out.push(*l + vec2(rng.f(), rng.f()) * amp * 0.5);
-            }
-            out
+            let mut rng = Rng::new(seed.wrapping_mul(31).wrapping_add(pass));
+            let waves = (total / 280.0).max(1.0);
+            let (p1, p2) = (rng.f() * PI, rng.f() * PI);
+            let a1 = amp * (0.45 + 0.3 * rng.f().abs());
+            let a2 = amp * 0.22;
+            let shift = rng.f() * amp * 0.55; // keeps the two passes apart
+            let (s0, len) = if closed { (rng.f().abs() * total, total + 8.0 + 8.0 * rng.f().abs()) } else { (0.0, total) };
+            let n = (len / 3.0).ceil().max(2.0) as usize;
+            (0..=n)
+                .map(|i| {
+                    let u = i as f32 / n as f32;
+                    let s = s0 + len * u;
+                    let sw = if closed { s.rem_euclid(total) } else { s.min(total) };
+                    let p = point_at(&src, sw);
+                    let tan = point_at(&src, (sw + 1.5).min(total)) - point_at(&src, (sw - 1.5).max(0.0));
+                    let nrm = if tan.length() > 1e-3 { vec2(-tan.y, tan.x).normalized() } else { Vec2::ZERO };
+                    // open lines stay pinned near their ends (connectors must meet their shapes)
+                    let taper = if closed { 1.0 } else { (u * 6.0).min((1.0 - u) * 6.0).clamp(0.25, 1.0) };
+                    let d = a1 * (TAU * waves * u + p1).sin() + a2 * (TAU * waves * 2.3 * u + p2).sin() + shift;
+                    p + nrm * d * taper
+                })
+                .collect()
         })
         .collect()
 }
