@@ -300,6 +300,7 @@ impl App {
         egui::Area::new(Id::new("library")).anchor(Align2::RIGHT_TOP, vec2(self.right_x(), if self.code_open { 10.0 } else { 62.0 })).show(ctx, |ui| {
             panel().inner_margin(Margin::same(10)).show(ui, |ui| {
                 ui.set_width(284.0);
+                ui.set_max_height(h + 160.0); // before any widget: it resets the cursor
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(if self.replace_icon { "Pick a new icon" } else { "Components" }).strong().size(14.0));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -384,6 +385,8 @@ impl App {
         egui::Area::new(Id::new("props")).anchor(Align2::LEFT_TOP, vec2(12.0, 62.0)).show(ctx, |ui| {
             panel().inner_margin(Margin::same(12)).show(ui, |ui| {
                 ui.set_width(PANEL_W);
+                // Areas cap content at last frame's size; let the panel grow when the selection changes.
+                ui.set_max_height(max_h);
                 egui::ScrollArea::vertical().max_height(max_h).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 4.0;
                     if !has(&[Kind::Comment]) {
@@ -643,6 +646,7 @@ impl App {
         egui::Area::new(Id::new("scenarios")).anchor(Align2::RIGHT_BOTTOM, vec2(self.right_x(), -64.0)).show(ctx, |ui| {
             panel().inner_margin(Margin::same(12)).show(ui, |ui| {
                 ui.set_width(320.0);
+                ui.set_max_height(520.0); // before any widget: it resets the cursor
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Scenarios").strong().size(14.0));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -963,6 +967,7 @@ impl App {
         egui::Area::new(Id::new("palette")).anchor(Align2::CENTER_TOP, vec2(-self.code_w / 2.0, 90.0)).order(Order::Foreground).show(ctx, |ui| {
             panel().inner_margin(Margin::same(10)).show(ui, |ui| {
                 ui.set_width(560.0);
+                ui.set_max_height(440.0); // before any widget: it resets the cursor
                 let pal = self.palette.as_mut().unwrap();
                 let r = ui.add(TextEdit::singleline(&mut pal.query).hint_text("Type a command, component or element…").desired_width(f32::INFINITY).font(egui::TextStyle::Heading).margin(Margin::symmetric(10, 8)));
                 if pal.focus {
