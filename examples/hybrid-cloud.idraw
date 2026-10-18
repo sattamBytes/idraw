@@ -1468,32 +1468,47 @@
   "next_id": 21,
   "scenarios": [
     {
-      "name": "Place an order",
+      "name": "Flow 1",
       "steps": [
         {
           "from": 3,
           "to": 4,
-          "caption": "Shopper taps Buy; request hits the nearest edge"
+          "caption": ""
         },
         {
           "from": 4,
+          "to": 6,
+          "caption": ""
+        },
+        {
+          "from": 6,
           "to": 5,
-          "caption": "CloudFront forwards the API call"
+          "caption": ""
         },
         {
           "from": 5,
-          "to": 6,
-          "caption": "Gateway authenticates and routes to Orders"
-        },
-        {
-          "from": 6,
-          "to": 7,
-          "caption": "Order written to DynamoDB"
-        },
-        {
-          "from": 6,
           "to": 8,
-          "caption": "Event published for fulfilment"
+          "caption": ""
+        },
+        {
+          "from": 8,
+          "to": 9,
+          "caption": ""
+        },
+        {
+          "from": 9,
+          "to": 10,
+          "caption": ""
+        },
+        {
+          "from": 10,
+          "to": 11,
+          "caption": ""
+        },
+        {
+          "from": 11,
+          "to": 12,
+          "caption": ""
         }
       ]
     }

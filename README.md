@@ -53,7 +53,15 @@ Payments [aws-lambda] (card processing) # optional [icon] and (subtitle)
 
 Names like S3, Lambda, BigQuery or Postgres get their icon automatically. Renaming a line renames the component.
 
-## Run
+## Install (macOS)
+
+```bash
+scripts/bundle.sh --install
+```
+
+That builds `idraw.app` (with its icon) and puts it in `~/Applications`, so it shows up in Spotlight and Launchpad. Run `scripts/bundle.sh` without `--install` to only build `dist/idraw.app`.
+
+For development:
 
 ```bash
 cargo run --release -- examples/hybrid-cloud.idraw
