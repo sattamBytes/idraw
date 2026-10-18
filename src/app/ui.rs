@@ -41,6 +41,20 @@ fn props_empty(ui: &mut Ui, locked: bool) {
     }
 }
 
+/// A click, or on a touch screen a tap on a control that can also be dragged: there a finger
+/// press starts a "drag" straight away, so egui never reports a click. A drag that ends on the
+/// same control counts as a tap.
+fn tapped(ui: &Ui, r: &Response) -> bool {
+    r.clicked()
+        || (r.drag_stopped()
+            && ui
+                .input(|i| i.events.iter().rev().find_map(|e| match e {
+                    egui::Event::PointerButton { pos, pressed: false, .. } => Some(*pos),
+                    _ => None,
+                }))
+                .is_some_and(|p| r.rect.contains(p)))
+}
+
 pub(super) fn icon_button(ui: &mut Ui, icons: &mut Icons, icon: &str, active: bool, tip: &str) -> Response {
     icon_button_sense(ui, icons, icon, active, tip, Sense::click())
 }
@@ -346,8 +360,9 @@ impl App {
                         let tip = if shape.is_some() { format!("{tip}\nClick to draw, or drag onto the canvas") } else { tip.to_string() };
                         let sense = if shape.is_some() { Sense::click_and_drag() } else { Sense::click() };
                         let r = icon_button_sense(ui, &mut self.icons, icon, self.tool == t, &tip, sense);
-                        if r.clicked() {
+                        if tapped(ui, &r) {
                             self.tool = t;
+                            self.lib_drag = None;
                         }
                         if let (true, Some(id)) = (r.drag_started(), shape) {
                             self.lib_drag = Some(id);
@@ -537,8 +552,9 @@ impl App {
                             ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
                             for it in items {
                                 let r = lib_tile(ui, &mut self.icons, it);
-                                if r.clicked() {
+                                if tapped(ui, &r) {
                                     pick = Some(it.id);
+                                    self.lib_drag = None;
                                 }
                                 if r.drag_started() && !self.replace_icon {
                                     self.lib_drag = Some(it.id);
