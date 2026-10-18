@@ -1383,8 +1383,12 @@ impl App {
             }
             Kind::Comment => (v.w2s(r.min) + vec2(24.0, -8.0), 240.0, 13.0 / z, false, INK, Align::Min),
             Kind::Arrow => {
+                // a pill sized to the text, centred on the label spot
                 let c = render::arrow_label_center(&self.doc.arrow_path(&e), &e);
-                (v.w2s(c - vec2(90.0, 10.0)), 180.0 * z, render::label_size(&e), false, e.style.stroke, Align::Center)
+                let size = render::label_size(&e);
+                let m = render::measure(ctx, if e.text.is_empty() { "Label" } else { &e.text }, size, hand);
+                let w = m.x + 16.0;
+                (v.w2s(c - vec2(w / 2.0 + 8.0, m.y / 2.0 + 4.0)), w * z, size, false, e.style.stroke, Align::Center)
             }
             _ => {
                 let m = render::measure(ctx, &e.text, e.style.font, hand);
@@ -1405,6 +1409,7 @@ impl App {
         let mut done = false;
         let focus = std::mem::take(&mut self.edit_focus);
         let mut text = e.text.clone();
+        let pill = e.kind == Kind::Arrow;
         egui::Area::new(Id::new("editor")).fixed_pos(pos).order(Order::Foreground).show(ctx, |ui| {
             let te = TextEdit::multiline(&mut text)
                 .font(render::font(size * z, bold, hand))
@@ -1412,9 +1417,21 @@ impl App {
                 .frame(e.kind == Kind::Comment)
                 .desired_width(width.max(40.0))
                 .desired_rows(1)
+                .hint_text(if pill { "Label" } else { "" })
                 .margin(if e.kind == Kind::Comment { Margin::same(6) } else { Margin::ZERO })
                 .horizontal_align(align);
-            let r = ui.add(te);
+            let r = if pill {
+                // keep the label readable over lines and borders while typing
+                Frame::new()
+                    .fill(theme::panel_bg())
+                    .stroke(Stroke::new(1.5, theme::INDIGO))
+                    .corner_radius(CornerRadius::same(((size * z + 8.0) / 2.0).min(255.0) as u8))
+                    .inner_margin(Margin::symmetric(8, 4))
+                    .show(ui, |ui| ui.add(te))
+                    .inner
+            } else {
+                ui.add(te)
+            };
             if focus {
                 r.request_focus();
             }
