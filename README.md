@@ -106,7 +106,35 @@ Then restart the agent and ask: *"draw an idraw diagram of how our checkout work
 | VS Code / GitHub Copilot | `~/.copilot/skills/idraw` (turn on `chat.useAgentSkills` if needed) | `.github/skills/idraw` or `.agents/skills/idraw` |
 | Others (OpenCode, Goose, Kiro, Roo…) | `~/.agents/skills/idraw` usually works | `.agents/skills/idraw` |
 
-The agent also needs the `idraw` command on its PATH (Homebrew sets this up). See [`skills/idraw/reference.md`](skills/idraw/reference.md) for every field.
+The agent also needs the `idraw` command on its PATH (Homebrew sets this up).
+
+<details>
+<summary><b>Troubleshooting: <code>idraw</code> prints nothing or isn't found</b></summary>
+
+1. Check the version (the command line arrived in 0.3.0):
+   ```bash
+   brew update && brew upgrade --cask sattamBytes/tap/idraw
+   brew info --cask sattamBytes/tap/idraw | head -1
+   ```
+2. Run the app's binary directly. If this works, the problem is only which `idraw` your shell finds:
+   ```bash
+   /Applications/idraw.app/Contents/MacOS/idraw --help
+   /Applications/idraw.app/Contents/MacOS/idraw skill install
+   ```
+   (Installed elsewhere? Use `~/Applications/idraw.app/...` or the folder you passed to `--appdir`.)
+3. See which `idraw` runs and where it points:
+   ```bash
+   which -a idraw
+   ls -l "$(which idraw)"
+   ```
+   If another `idraw` comes first, or Homebrew lives in a custom folder that isn't on your PATH, add a link yourself:
+   ```bash
+   mkdir -p ~/.local/bin && ln -sf /Applications/idraw.app/Contents/MacOS/idraw ~/.local/bin/idraw
+   ```
+   and make sure `~/.local/bin` is on your PATH (`echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc`, then open a new terminal).
+4. `idraw --help` should list `render`, `check`, `icons` and `skill`. If it opens the app window instead, you're running a version older than 0.3.0.
+
+</details> See [`skills/idraw/reference.md`](skills/idraw/reference.md) for every field.
 
 <p align="center"><img src="skills/idraw/examples/url-shortener.png" alt="URL shortener diagram written by an agent with the idraw skill" width="820"></p>
 
@@ -119,7 +147,8 @@ The agent also needs the `idraw` command on its PATH (Homebrew sets this up). Se
 - **Clean** or **sketch** (hand-drawn, hachure fills) style, in **light** or **dark** theme
 
 **System design**
-- 250+ components: generic infra, plus **AWS, Google Cloud, Azure, Cloudflare**, other clouds and open-source services, all drawn as consistent glyphs
+- 290+ components: generic infra, plus **AWS, Google Cloud, Azure, Cloudflare**, other clouds and open-source services, all drawn as consistent glyphs
+- **Logic, AI and idea icons** too: decision, decision tree, router, if/else, switch, merge/split, loop, rule engine, feature flag, A/B test, state machine; prompt, tokens, temperature, embeddings, RAG, guardrails, evals, agent memory, tool calls; idea, design, goal, launch
 - **Boundary presets**: Cloud, On-prem data center, Region, AZ, VPC, public/private subnet, K8s cluster, DMZ, corporate network, edge, account
 - **Bring your own icons**: drop SVG packs (e.g. the official AWS/Azure/GCP sets, under their own licences) into `~/Library/Application Support/idraw/icons/<Category>/`
 - **Smart connectors** route around other shapes, snap to sides, and use elbow, straight or curved lines with label pills
