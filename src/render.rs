@@ -174,7 +174,8 @@ pub fn draw_element(p: &Painter, ctx: &Context, doc: &Doc, e: &Element, v: &View
                     p.image(t, v.rect(ir), UV, icon_tint(&e.icon));
                 }
             }
-            if !hide && !e.text.is_empty() {
+            // the inline icon stays put while the label is being edited (or is empty)
+            if (!hide && !e.text.is_empty()) || icon_inline(e) {
                 let bold = e.kind == Kind::Region;
                 let lines: Vec<&str> = e.text.split('\n').collect();
                 let mut size = measure(ctx, &e.text, s.font, hand);
@@ -197,7 +198,9 @@ pub fn draw_element(p: &Painter, ctx: &Context, doc: &Doc, e: &Element, v: &View
                     }
                     x += (isz + 6.0) * (1.0 - ax);
                 }
-                text_lines(p, v, &lines, x, top, s.font, bold, color, ax, hand);
+                if !hide {
+                    text_lines(p, v, &lines, x, top, s.font, bold, color, ax, hand);
+                }
             }
         }
         Kind::Text => {
