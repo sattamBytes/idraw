@@ -87,6 +87,7 @@ pub(crate) const COMMANDS: &[(&str, &str, &str)] = &[
     ("Toggle sketch (hand-drawn) style", "⇧⌘K", "sketch"),
     ("Insert component at cursor", "/", "picker"),
     ("Import compose / Kubernetes / Terraform / Mermaid…", "⌘I", "import"),
+    ("Copy as image", "⇧⌘C", "copy-image"),
     ("Export PNG", "⌘E", "png"),
     ("Export SVG", "", "svg"),
     ("Export animated GIF", "⇧⌘E", "gif"),
@@ -694,6 +695,7 @@ impl App {
             "z-backward" => self.reorder(-1),
             "z-back" => self.reorder(-2),
             "paste" => ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste),
+            "copy-image" => self.copy_image(ctx),
             "copy" => {
                 if !self.sel.is_empty() {
                     ctx.copy_text(serde_json::to_string(&self.selected_snapshot()).unwrap_or_default());
@@ -833,6 +835,26 @@ impl App {
         self.merge_doc(ctx, res);
     }
 
+    /// Copies the diagram (or the selection) to the clipboard as an image.
+    fn copy_image(&mut self, ctx: &Context) {
+        self.export_menu = false;
+        if self.doc.elements.is_empty() {
+            return self.toast(ctx, "Nothing to copy");
+        }
+        let (doc, only, q, look, ctx2) = (self.doc.clone(), self.sel.clone(), self.quality, Look { dark: self.dark, failures: self.failures }, ctx.clone());
+        let (tx, rx) = channel();
+        self.export_rx = Some(rx);
+        self.toast = Some(("Copying image…".into(), f64::MAX));
+        std::thread::spawn(move || {
+            let r = export::render_rgba(&doc, &only, q, look).map(|(size, px)| {
+                ctx2.copy_image(egui::ColorImage::from_rgba_unmultiplied(size, &px));
+                format!("{}×{} image on the clipboard", size[0], size[1])
+            });
+            let _ = tx.send(r.map(|m| format!("::{m}")));
+            ctx2.request_repaint();
+        });
+    }
+
     /// `scenario`: export that scenario as an animated GIF instead.
     fn export(&mut self, ctx: &Context, fmt: &'static str, scenario: Option<usize>) {
         self.export_menu = false;
@@ -882,6 +904,7 @@ impl App {
             for (k, m, name) in [
                 (Key::Z, shift_cmd, "redo"),
                 (Key::Z, cmd, "undo"),
+                (Key::C, shift_cmd, "copy-image"),
                 (Key::S, shift_cmd, "saveas"),
                 (Key::S, cmd, "save"),
                 (Key::O, cmd, "open"),
@@ -968,6 +991,8 @@ impl App {
         }
         for ev in ctx.input(|i| i.events.clone()) {
             match ev {
+                // ⇧⌘C is "copy as image", handled above
+                Event::Copy if ctx.input(|i| i.modifiers.shift) => {}
                 Event::Copy | Event::Cut if !self.sel.is_empty() => {
                     ctx.copy_text(serde_json::to_string(&self.selected_snapshot()).unwrap_or_default());
                     if ev == Event::Cut {
@@ -1755,6 +1780,7 @@ impl eframe::App for App {
             if let Ok(r) = rx.try_recv() {
                 self.export_rx = None;
                 match r {
+                    Ok(p) if p.starts_with("::") => self.toast(ctx, format!("Copied {}", &p[2..])),
                     Ok(p) => self.toast(ctx, format!("Exported → {p}")),
                     Err(e) => self.toast(ctx, format!("Export failed: {e}")),
                 }

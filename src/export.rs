@@ -479,6 +479,15 @@ pub fn write_svg(doc: &Doc, only: &[u64], look: Look, path: &Path) -> Result<(),
     std::fs::write(path, s).map_err(|e| e.to_string())
 }
 
+/// Renders the diagram (or selection) to straight RGBA pixels, e.g. for the clipboard.
+pub fn render_rgba(doc: &Doc, only: &[u64], q: Quality, look: Look) -> Result<([usize; 2], Vec<u8>), String> {
+    let (s, b) = svg(doc, only, 0.0, look).ok_or("nothing to copy")?;
+    let pm = rasterize(&s, &options(), q.scale(b))?;
+    let size = [pm.width() as usize, pm.height() as usize];
+    // the export background is opaque, so premultiplied == straight alpha
+    Ok((size, pm.take()))
+}
+
 pub fn write_png(doc: &Doc, only: &[u64], q: Quality, look: Look, path: &Path) -> Result<(), String> {
     let (s, b) = svg(doc, only, 0.0, look).ok_or("nothing to export")?;
     rasterize(&s, &options(), q.scale(b))?.save_png(path).map_err(|e| e.to_string())

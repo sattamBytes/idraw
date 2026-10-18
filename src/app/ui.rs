@@ -320,6 +320,11 @@ impl App {
                 if let Some(q) = seg(ui, self.quality, &[(Quality::Standard, "1×"), (Quality::Retina, "2× Retina"), (Quality::UltraHd, "4K")]) {
                     self.quality = q;
                 }
+                let copy = egui::Button::new(RichText::new("⧉  Copy to clipboard").strong()).shortcut_text("⇧⌘C").min_size(vec2(PANEL_W + 10.0, 32.0));
+                if ui.add(copy).on_hover_text("Copy as an image to paste anywhere, without saving a file").clicked() {
+                    act = Some(("copy-image", None));
+                }
+                ui.add_space(2.0);
                 let scope = if self.sel.is_empty() { "whole canvas" } else { "selection only" };
                 ui.label(RichText::new(format!("Exports {scope} · {} theme{}", if self.dark { "dark" } else { "light" }, if self.failures { " · outage view" } else { "" })).small().color(theme::muted()));
                 ui.add_space(4.0);
@@ -342,8 +347,10 @@ impl App {
                 }
             });
         });
-        if let Some((fmt, s)) = act {
-            self.export(ctx, fmt, s);
+        match act {
+            Some(("copy-image", _)) => self.copy_image(ctx),
+            Some((fmt, s)) => self.export(ctx, fmt, s),
+            None => {}
         }
     }
 
@@ -1148,6 +1155,7 @@ impl App {
         };
         if self.sel.is_empty() {
             item(ui, "Paste", "⌘V", "paste");
+            item(ui, "Copy diagram as image", "⇧⌘C", "copy-image");
             item(ui, "Insert component here", "/", "picker-here");
             ui.separator();
             item(ui, "Select all", "⌘A", "all");
@@ -1162,6 +1170,7 @@ impl App {
         ui.separator();
         item(ui, "Duplicate", "⌘D", "dup");
         item(ui, "Copy", "⌘C", "copy");
+        item(ui, "Copy as image", "⇧⌘C", "copy-image");
         item(ui, "Delete", "⌫", "del");
         ui.separator();
         item(ui, "Wrap in boundary", "⌘G", "group");
