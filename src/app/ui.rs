@@ -262,7 +262,7 @@ impl App {
                 let groups: &[&[(&str, &str, &str)]] = &[
                     &[("New", "", "new"), ("Open…", "⌘O", "open"), ("Save", "⌘S", "save"), ("Save as…", "⇧⌘S", "saveas"), (if self.autosave { "Auto-save: On ✓" } else { "Auto-save: Off" }, "", "autosave")],
                     &[("Import compose / k8s / Terraform / Mermaid…", "⌘I", "import"), ("Open icon packs folder", "", "icons-folder")],
-                    &[("Command palette", "⌘K", "palette"), ("Diagram as code", "⌘/", "code"), ("Auto-layout", "⇧⌘L", "layout"), ("Scenarios", "", "scenarios"), ("Simulate outage", "F", "failures"), ("Collaborate live…", "", "collab")],
+                    &[("Command palette", "⌘K", "palette"), ("Diagram as code", "⌘/", "code"), ("Auto-layout", "⇧⌘L", "layout"), ("Request flows", "", "scenarios"), ("Simulate outage", "F", "failures"), ("Collaborate live…", "", "collab")],
                     &[(if self.dark { "Light mode" } else { "Dark mode" }, "⇧⌘D", "dark"), (if self.doc.sketch { "Clean style" } else { "Sketch style" }, "⇧⌘K", "sketch"), ("Zoom to fit", "⇧1", "fit")],
                 ];
                 for (gi, g) in groups.iter().enumerate() {
@@ -316,7 +316,7 @@ impl App {
                 }
                 if !self.doc.scenarios.is_empty() {
                     ui.separator();
-                    ui.label(RichText::new("Scenario GIFs").size(11.0).color(theme::muted()).strong());
+                    ui.label(RichText::new("Flow GIFs").size(11.0).color(theme::muted()).strong());
                     for (i, s) in self.doc.scenarios.iter().enumerate() {
                         if ui.add(egui::Button::new(format!("▶  {}", s.name)).shortcut_text(format!("{} steps", s.steps.len())).frame(false).min_size(vec2(PANEL_W + 10.0, 28.0))).clicked() {
                             act = Some(("gif", Some(i)));
@@ -573,6 +573,12 @@ impl App {
                         };
                         ui.label(RichText::new(hint).small().color(theme::muted()));
                     }
+                    if has(&[Kind::Node, Kind::Rect, Kind::Ellipse, Kind::Diamond]) && self.sel.len() == 1 {
+                        section(ui, "Request flow");
+                        if ui.button("▶  Start a flow from here").on_hover_text("Then click each next component the request visits").clicked() {
+                            action = "flow-here";
+                        }
+                    }
                     if has(&[Kind::Node, Kind::Rect, Kind::Ellipse, Kind::Diamond]) {
                         section(ui, "What if it fails?");
                         if ui.button("⚠  Simulate outage…").on_hover_text("Then click components to take them down (F)").clicked() {
@@ -707,6 +713,13 @@ impl App {
             "del" => self.delete_selected(),
             "layout" => self.auto_layout(false),
             "outage" => self.run(ctx, "failures"),
+            "flow-here" => {
+                self.start_record();
+                if let Some((_, nodes)) = &mut self.rec {
+                    nodes.push(first.id);
+                }
+                self.scn_panel = true;
+            }
             "save-boundary" => {
                 let b = CustomBoundary { name: node_text(&first.text).0.to_string(), icon: first.icon.clone(), color: first.style.stroke, dashed: first.style.dashed };
                 self.bound_editor = Some(BoundEditor { idx: None, b, query: String::new() });
@@ -751,7 +764,7 @@ impl App {
                     if icon_button(ui, &mut self.icons, "alert", self.failures, "Simulate an outage  F").clicked() {
                         act = Some("failures");
                     }
-                    if icon_button(ui, &mut self.icons, "film", self.scn_panel, "Scenarios — record & play request flows").clicked() {
+                    if icon_button(ui, &mut self.icons, "film", self.scn_panel, "Request flows: record how a request travels, then play it").clicked() {
                         act = Some("scenarios");
                     }
                     if flows {
@@ -785,7 +798,7 @@ impl App {
                 ui.set_width(330.0);
                 ui.set_max_height(560.0); // before any widget: it resets the cursor
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Request scenarios").strong().size(14.0));
+                    ui.label(RichText::new("Request flows").strong().size(14.0));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if icon_button(ui, &mut self.icons, "x", false, "Close").clicked() {
                             self.scn_panel = false;
@@ -827,7 +840,7 @@ impl App {
                             if icon_button(ui, &mut self.icons, "download", false, "Export as animated GIF").clicked() {
                                 act = Some(("gif", i, 0));
                             }
-                            if icon_button(ui, &mut self.icons, "trash", false, "Delete scenario").clicked() {
+                            if icon_button(ui, &mut self.icons, "trash", false, "Delete flow").clicked() {
                                 act = Some(("del", i, 0));
                             }
                         });
@@ -850,7 +863,7 @@ impl App {
                                         self.dirty = true;
                                     }
                                 }
-                                if ui.button("+ Add more steps").on_hover_text("Click more components to extend this scenario").clicked() {
+                                if ui.button("+ Add more steps").on_hover_text("Click more components to extend this flow").clicked() {
                                     act = Some(("extend", i, 0));
                                 }
                             });
@@ -898,7 +911,7 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new("●").color(theme::RED).size(16.0));
                         ui.label(RichText::new(format!("Recording “{name}”")).strong());
-                        ui.label(RichText::new(format!("click components in order · {n} picked · Enter to finish · Esc to cancel")).color(theme::muted()));
+                        ui.label(RichText::new(if n == 0 { "click the component where the request starts".to_string() } else { format!("click the next component it goes to · {} steps so far · Enter or Done to finish", n.saturating_sub(1)) }).color(theme::muted()));
                         if ui.button("Cancel").clicked() {
                             act = "cancel";
                         }

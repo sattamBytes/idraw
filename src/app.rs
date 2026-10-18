@@ -65,8 +65,8 @@ pub(crate) const COMMANDS: &[(&str, &str, &str)] = &[
     ("Auto-layout: left → right", "⇧⌘L", "layout"),
     ("Auto-layout: top → down", "", "layout-v"),
     ("Diagram as code", "⌘/", "code"),
-    ("Record a request scenario", "", "record"),
-    ("Scenarios…", "", "scenarios"),
+    ("Record a request flow", "", "record"),
+    ("Request flows…", "", "scenarios"),
     ("Simulate an outage", "F", "failures"),
     ("Clear all pen drawings", "", "clear-ink"),
     ("Toggle auto-save", "", "autosave"),
@@ -529,7 +529,7 @@ impl App {
     fn start_record(&mut self) {
         self.rec_into = None;
         let n = self.doc.scenarios.len() + 1;
-        self.rec = Some((format!("Scenario {n}"), vec![]));
+        self.rec = Some((format!("Flow {n}"), vec![]));
         self.scn_play = None;
         self.sel.clear();
         self.tool = Tool::Select;
