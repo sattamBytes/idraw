@@ -31,6 +31,10 @@ pub fn setup_fonts(ctx: &egui::Context) {
         ("canvas-bold", "avenir-demi", "/System/Library/Fonts/Avenir Next.ttc", 2),
         ("hand", "noteworthy", "/System/Library/Fonts/Noteworthy.ttc", 0),
         ("hand-bold", "noteworthy-bold", "/System/Library/Fonts/Noteworthy.ttc", 1),
+        ("mono", "menlo", "/System/Library/Fonts/Menlo.ttc", 0),
+        ("mono-bold", "menlo-bold", "/System/Library/Fonts/Menlo.ttc", 1),
+        ("serif", "georgia", "/System/Library/Fonts/Supplemental/Georgia.ttf", 0),
+        ("serif-bold", "georgia-bold", "/System/Library/Fonts/Supplemental/Georgia Bold.ttf", 0),
     ] {
         let mut list = fallback.clone();
         if load(&mut f, key, path, index) {

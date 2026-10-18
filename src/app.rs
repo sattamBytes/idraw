@@ -460,7 +460,7 @@ impl App {
         } else if !s.trim().is_empty() {
             let mut e = Element::new(Kind::Text, Rect::from_min_size(self.view_center(), Vec2::ZERO));
             e.text = s.trim().to_string();
-            e.rect.max = e.rect.min + render::measure(ctx, &e.text, e.style.font, self.doc.sketch);
+            e.rect.max = e.rect.min + render::measure(ctx, &e.text, e.style.font, e.style.face.resolve(self.doc.sketch));
             self.add_select(e);
         }
     }
@@ -1108,7 +1108,7 @@ impl App {
     fn label_hit(&self, ctx: &Context, w: Pos2) -> Option<u64> {
         self.doc.elements.iter().rev().filter(|e| e.kind == Kind::Arrow && !e.text.is_empty()).find_map(|e| {
             let c = render::arrow_label_center(&self.doc.arrow_path(e), e);
-            let m = render::measure(ctx, &e.text, render::label_size(e), self.doc.sketch);
+            let m = render::measure(ctx, &e.text, render::label_size(e), e.style.face.resolve(self.doc.sketch));
             Rect::from_center_size(c, m + vec2(18.0, 8.0)).contains(w).then_some(e.id)
         })
     }
@@ -1827,7 +1827,7 @@ impl eframe::App for App {
         // keep text boxes sized to their content
         let sketch = self.doc.sketch;
         for e in self.doc.elements.iter_mut().filter(|e| e.kind == Kind::Text) {
-            e.rect.max = e.rect.min + render::measure(ctx, &e.text, e.style.font, sketch);
+            e.rect.max = e.rect.min + render::measure(ctx, &e.text, e.style.font, e.style.face.resolve(sketch));
         }
 
         self.props_panel(ctx);

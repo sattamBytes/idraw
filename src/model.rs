@@ -121,6 +121,32 @@ pub struct Style {
     /// connector line pattern besides plain / dashed
     #[serde(default)]
     pub pattern: Pattern,
+    #[serde(default)]
+    pub face: Face,
+    /// label colour; None = follow the stroke
+    #[serde(default)]
+    pub text_color: Option<Color32>,
+}
+
+/// Typeface of a label. Auto follows the diagram's sketch mode.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum Face {
+    #[default]
+    Auto,
+    Sans,
+    Hand,
+    Mono,
+    Serif,
+}
+
+impl Face {
+    pub fn resolve(self, sketch: bool) -> Face {
+        match self {
+            Face::Auto if sketch => Face::Hand,
+            Face::Auto => Face::Sans,
+            f => f,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
@@ -146,6 +172,8 @@ impl Default for Style {
             head_end: true,
             flow: Flow::None,
             pattern: Pattern::Solid,
+            face: Face::Auto,
+            text_color: None,
         }
     }
 }

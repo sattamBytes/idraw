@@ -47,8 +47,13 @@ impl Ctx<'_> {
     fn m(&self, c: Color32) -> Color32 {
         theme::map(c, self.look.dark)
     }
-    fn font(&self) -> &'static str {
-        if self.doc.sketch { HAND } else { FONT }
+    fn font(&self, f: Face) -> &'static str {
+        match f.resolve(self.doc.sketch) {
+            Face::Hand => HAND,
+            Face::Mono => "Menlo, SF Mono, monospace",
+            Face::Serif => "Georgia, New York, serif",
+            _ => FONT,
+        }
     }
 }
 
@@ -215,13 +220,13 @@ fn element(o: &mut String, c: &Ctx, e: &Element) {
                     icon_svg(o, &e.icon, Rect::from_min_size(pos2(left, top + (s.font * LINE_H - isz) / 2.0), vec2(isz, isz)), stroke);
                     x += (isz + 6.0) * (1.0 - ax);
                 }
-                let color = if e.kind == Kind::Sticky { c.m(INK) } else { stroke };
-                text(o, c.font(), &lines, x, top, s.font, e.kind == Kind::Region, color, ax);
+                let color = s.text_color.map(|t| c.m(t)).unwrap_or(if e.kind == Kind::Sticky { c.m(INK) } else { stroke });
+                text(o, c.font(s.face), &lines, x, top, s.font, e.kind == Kind::Region, color, ax);
             }
         }
         Kind::Text => {
             let lines: Vec<&str> = e.text.split('\n').collect();
-            text(o, c.font(), &lines, r.min.x, r.min.y, s.font, false, c.m(s.stroke), 0.0);
+            text(o, c.font(s.face), &lines, r.min.x, r.min.y, s.font, false, c.m(s.stroke), 0.0);
         }
         Kind::Node => node(o, c, e),
         Kind::Pen => {
@@ -261,7 +266,7 @@ fn node(o: &mut String, c: &Ctx, e: &Element) {
         );
         let lines = node_notes(e);
         let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
-        text(o, c.font(), &refs, nr.min.x + NOTE_PAD, nr.min.y + NOTE_TUCK + NOTE_PAD, NOTE_SIZE, false, c.m(Color32::from_rgb(0x4b, 0x55, 0x63)), 0.0);
+        text(o, c.font(Face::Auto), &refs, nr.min.x + NOTE_PAD, nr.min.y + NOTE_TUCK + NOTE_PAD, NOTE_SIZE, false, c.m(Color32::from_rgb(0x4b, 0x55, 0x63)), 0.0);
     }
     for k in (1..e.replicas.min(3)).rev() {
         rect(o, r.translate(vec2(6.0, 6.0) * k as f32), "");
@@ -280,8 +285,8 @@ fn node(o: &mut String, c: &Ctx, e: &Element) {
     icon_svg(o, &e.icon, if color_icon { l.tile } else { l.icon }, accent);
     let (title, sub) = node_text(&e.text);
     let (tt, st) = node_text_tops(sub.len());
-    text(o, c.font(), &[title], l.text_x, r.center().y + tt, NODE_TITLE, true, c.m(INK), 0.0);
-    text(o, c.font(), &sub, l.text_x, r.center().y + st, NODE_SUB, false, c.m(MUTED), 0.0);
+    text(o, c.font(e.style.face), &[title], l.text_x, r.center().y + tt, NODE_TITLE, true, c.m(e.style.text_color.unwrap_or(INK)), 0.0);
+    text(o, c.font(e.style.face), &sub, l.text_x, r.center().y + st, NODE_SUB, false, c.m(MUTED), 0.0);
     let pill = |o: &mut String, center: Pos2, label: &str, bg: Color32| {
         let w = est_w(label, 10.5) + 12.0;
         let _ = write!(o, r#"<rect x="{:.1}" y="{:.1}" width="{w:.1}" height="17" rx="8.5" {}/>"#, center.x - w / 2.0, center.y - 8.5, paint("fill", bg));
@@ -395,7 +400,7 @@ fn arrow(o: &mut String, c: &Ctx, e: &Element) {
             paint("fill", c.m(Color32::WHITE)),
             paint("stroke", color.gamma_multiply(0.3))
         );
-        text(o, c.font(), &lines, m.x, m.y - (h - 4.0) / 2.0, size, false, color, 0.5);
+        text(o, c.font(s.face), &lines, m.x, m.y - (h - 4.0) / 2.0, size, false, s.text_color.map(|t| c.m(t)).unwrap_or(color), 0.5);
     }
 }
 

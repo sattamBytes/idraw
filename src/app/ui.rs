@@ -161,6 +161,32 @@ fn seg<T: PartialEq + Copy>(ui: &mut Ui, cur: T, opts: &[(T, &str)]) -> Option<T
     out
 }
 
+/// Typefaces shown as "Aa" in each face.
+fn face_pick(ui: &mut Ui, cur: Face) -> Option<Face> {
+    let opts = [(Face::Sans, "Clean"), (Face::Hand, "Hand-drawn"), (Face::Mono, "Code"), (Face::Serif, "Serif")];
+    let mut out = None;
+    Frame::new().fill(theme::hover()).corner_radius(8).inner_margin(Margin::same(2)).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            let w = (PANEL_W - 8.0 - 2.0 * (opts.len() as f32 - 1.0)) / opts.len() as f32;
+            for (f, tip) in opts {
+                let on = f == cur;
+                let (r, resp) = ui.allocate_exact_size(vec2(w, 28.0), Sense::click());
+                let resp = resp.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::PointingHand);
+                let p = ui.painter();
+                if on || resp.hovered() {
+                    p.rect_filled(r, 6.0, if on { theme::panel_bg() } else { theme::panel_bg().gamma_multiply(0.5) });
+                }
+                p.text(r.center(), Align2::CENTER_CENTER, "Aa", render::font(15.0, false, f), if on { theme::active_fg() } else { theme::text() });
+                if resp.clicked() && !on {
+                    out = Some(f);
+                }
+            }
+        });
+    });
+    out
+}
+
 /// Connector line styles as little drawn samples.
 fn line_pick(ui: &mut Ui, cur: (bool, Pattern), width: f32) -> Option<(bool, Pattern)> {
     let opts = [
@@ -693,6 +719,30 @@ impl App {
                             change = Some(Box::new(move |e| e.style.font = f));
                         }
                     }
+                    if has(&[Kind::Rect, Kind::Ellipse, Kind::Diamond, Kind::Text, Kind::Arrow, Kind::Region, Kind::Sticky, Kind::Node]) {
+                        section(ui, "Font");
+                        if let Some(f) = face_pick(ui, s.face.resolve(self.doc.sketch)) {
+                            change = Some(Box::new(move |e| e.style.face = f));
+                        }
+                    }
+                    // plain text is coloured by its stroke above
+                    if has(&[Kind::Rect, Kind::Ellipse, Kind::Diamond, Kind::Arrow, Kind::Region, Kind::Sticky, Kind::Node]) {
+                        section(ui, "Text color");
+                        ui.horizontal_wrapped(|ui| {
+                            if swatch(ui, Color32::TRANSPARENT, s.text_color.is_none(), "Same as stroke").clicked() {
+                                change = Some(Box::new(|e| e.style.text_color = None));
+                            }
+                            for (c, name) in super::STROKES {
+                                if swatch(ui, c, s.text_color == Some(c), name).clicked() {
+                                    change = Some(Box::new(move |e| e.style.text_color = Some(c)));
+                                }
+                            }
+                            let mut c = s.text_color.unwrap_or(s.stroke);
+                            if egui::color_picker::color_edit_button_srgba(ui, &mut c, egui::color_picker::Alpha::Opaque).on_hover_text("Pick any text color").changed() {
+                                change = Some(Box::new(move |e| e.style.text_color = Some(c)));
+                            }
+                        });
+                    }
                     if has(&[Kind::Arrow]) {
                         section(ui, "Route");
                         if let Some(r) = seg(ui, s.route, &[(Route::Elbow, "Elbow"), (Route::Straight, "Straight"), (Route::Curve, "Curve")]) {
@@ -1172,7 +1222,7 @@ impl App {
                 if let Some(t) = self.icons.get(ctx, &ed.b.icon) {
                     p.image(t, Rect::from_min_size(box_r.min + vec2(14.0, 10.0), vec2(16.0, 16.0)), render::UV, ed.b.color);
                 }
-                p.text(box_r.min + vec2(36.0, 10.0), Align2::LEFT_TOP, &ed.b.name, render::font(13.0, true, false), ed.b.color);
+                p.text(box_r.min + vec2(36.0, 10.0), Align2::LEFT_TOP, &ed.b.name, render::font(13.0, true, Face::Sans), ed.b.color);
                 ui.add_space(6.0);
                 ui.label(RichText::new("Name").size(11.0).color(theme::muted()).strong());
                 ui.add(TextEdit::singleline(&mut ed.b.name).desired_width(f32::INFINITY));
@@ -1658,7 +1708,7 @@ impl App {
         let v = self.view();
         let z = self.zoom;
         let r = e.rect;
-        let hand = self.doc.sketch;
+        let hand = e.style.face.resolve(self.doc.sketch);
         let (pos, width, size, bold, color, align) = match e.kind {
             Kind::Text => (v.w2s(r.min), (r.width() + 40.0) * z, e.style.font, false, e.style.stroke, Align::Min),
             Kind::Node => {
@@ -1690,12 +1740,14 @@ impl App {
                 (v.w2s(pos2(left, top)), w * z, e.style.font, e.kind == Kind::Region, if e.kind == Kind::Sticky { INK } else { e.style.stroke }, align)
             }
         };
-        let color = theme::map(color, self.dark);
+        let color = theme::map(e.style.text_color.filter(|_| e.kind != Kind::Text).unwrap_or(color), self.dark);
         let mut done = false;
         let focus = std::mem::take(&mut self.edit_focus);
         let mut text = e.text.clone();
         let pill = e.kind == Kind::Arrow;
         egui::Area::new(Id::new("editor")).fixed_pos(pos).order(Order::Foreground).show(ctx, |ui| {
+            // a soft highlight so selected text stays readable whatever its colour
+            ui.visuals_mut().selection.bg_fill = theme::INDIGO.gamma_multiply(0.22);
             let te = TextEdit::multiline(&mut text)
                 .font(render::font(size * z, bold, hand))
                 .text_color(color)

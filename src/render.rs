@@ -43,18 +43,23 @@ pub struct Opts<'a> {
     pub skip_arrows: bool,
 }
 
-pub fn font(size: f32, bold: bool, hand: bool) -> FontId {
-    let fam = match (hand, bold) {
-        (true, false) => "hand",
-        (true, true) => "hand-bold",
-        (false, false) => "canvas",
-        (false, true) => "canvas-bold",
+/// `face` should already be resolved (Auto draws as Sans).
+pub fn font(size: f32, bold: bool, face: Face) -> FontId {
+    let fam = match (face, bold) {
+        (Face::Hand, false) => "hand",
+        (Face::Hand, true) => "hand-bold",
+        (Face::Mono, false) => "mono",
+        (Face::Mono, true) => "mono-bold",
+        (Face::Serif, false) => "serif",
+        (Face::Serif, true) => "serif-bold",
+        (_, false) => "canvas",
+        (_, true) => "canvas-bold",
     };
     FontId::new(size, FontFamily::Name(fam.into()))
 }
 
 /// Size of a text block in world units.
-pub fn measure(ctx: &Context, text: &str, size: f32, hand: bool) -> Vec2 {
+pub fn measure(ctx: &Context, text: &str, size: f32, hand: Face) -> Vec2 {
     let lines: Vec<&str> = if text.is_empty() { vec![""] } else { text.split('\n').collect() };
     let w = ctx.fonts(|f| lines.iter().map(|l| f.layout_no_wrap(l.to_string(), font(size, false, hand), Color32::BLACK).size().x).fold(0.0, f32::max));
     vec2(w.max(size * 0.5), lines.len() as f32 * size * LINE_H)
@@ -62,7 +67,7 @@ pub fn measure(ctx: &Context, text: &str, size: f32, hand: bool) -> Vec2 {
 
 /// Draws lines of text. `anchor_x`: 0 left, 0.5 centered, 1 right. `top` is the block top (world).
 #[allow(clippy::too_many_arguments)]
-pub fn text_lines(p: &Painter, v: &View, lines: &[&str], x: f32, top: f32, size: f32, bold: bool, color: Color32, anchor_x: f32, hand: bool) {
+pub fn text_lines(p: &Painter, v: &View, lines: &[&str], x: f32, top: f32, size: f32, bold: bool, color: Color32, anchor_x: f32, hand: Face) {
     let f = font(size * v.zoom, bold, hand);
     for (i, l) in lines.iter().enumerate() {
         let g = p.layout_no_wrap(l.to_string(), f.clone(), color);
@@ -147,7 +152,7 @@ pub fn draw_element(p: &Painter, ctx: &Context, doc: &Doc, e: &Element, v: &View
     let stroke_c = if down { DOWN_RED } else { m(s.stroke) };
     let stroke = Stroke::new(s.width * z, stroke_c);
     let hide = o.hide_text == Some(e.id);
-    let hand = o.sketch;
+    let hand = s.face.resolve(o.sketch);
     let r = e.rect;
     match e.kind {
         Kind::Rect | Kind::Ellipse | Kind::Diamond | Kind::Region | Kind::Sticky => {
@@ -183,7 +188,7 @@ pub fn draw_element(p: &Painter, ctx: &Context, doc: &Doc, e: &Element, v: &View
                 let dx = ctx.animate_value_with_time(Id::new(("tx", e.id)), x - r.min.x, 0.18);
                 let dy = ctx.animate_value_with_time(Id::new(("ty", e.id)), top - r.min.y, 0.18);
                 let (mut x, top) = (r.min.x + dx, r.min.y + dy);
-                let color = if e.kind == Kind::Sticky { m(INK) } else { stroke_c };
+                let color = s.text_color.map(m).unwrap_or(if e.kind == Kind::Sticky { m(INK) } else { stroke_c });
                 if has_icon {
                     let left = x - size.x * ax;
                     let ir = Rect::from_min_size(pos2(left, top + (s.font * LINE_H - isz) / 2.0), vec2(isz, isz));
@@ -241,7 +246,7 @@ fn draw_node(p: &Painter, ctx: &Context, e: &Element, v: &View, icons: &mut Icon
         p.rect(sr, cr(10.0 * z), m(tint(accent, 0.05)), Stroke::new(1.0 * z, m(CARD_BORDER)), StrokeKind::Inside);
         let lines = node_notes(e);
         let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
-        text_lines(p, v, &refs, nr.min.x + NOTE_PAD, nr.min.y + NOTE_TUCK + NOTE_PAD, NOTE_SIZE, false, m(Color32::from_rgb(0x4b, 0x55, 0x63)), 0.0, o.sketch);
+        text_lines(p, v, &refs, nr.min.x + NOTE_PAD, nr.min.y + NOTE_TUCK + NOTE_PAD, NOTE_SIZE, false, m(Color32::from_rgb(0x4b, 0x55, 0x63)), 0.0, Face::Auto.resolve(o.sketch));
     }
     for k in (1..e.replicas.min(3)).rev() {
         let rr = v.rect(r.translate(Vec2::splat(6.0 * k as f32)));
@@ -269,8 +274,9 @@ fn draw_node(p: &Painter, ctx: &Context, e: &Element, v: &View, icons: &mut Icon
         let (title, sub) = node_text(&e.text);
         let (tt, st) = node_text_tops(sub.len());
         let cy = r.center().y;
-        text_lines(p, v, &[title], l.text_x, cy + tt, NODE_TITLE, true, m(INK), 0.0, o.sketch);
-        text_lines(p, v, &sub, l.text_x, cy + st, NODE_SUB, false, m(MUTED), 0.0, o.sketch);
+        let face = e.style.face.resolve(o.sketch);
+        text_lines(p, v, &[title], l.text_x, cy + tt, NODE_TITLE, true, m(e.style.text_color.unwrap_or(INK)), 0.0, face);
+        text_lines(p, v, &sub, l.text_x, cy + st, NODE_SUB, false, m(MUTED), 0.0, face);
     }
     let pill = |p: &Painter, center: Pos2, label: &str, bg: Color32| {
         let g = p.layout_no_wrap(label.to_string(), FontId::proportional(10.5 * z), Color32::WHITE);
@@ -397,11 +403,13 @@ fn draw_arrow(p: &Painter, ctx: &Context, doc: &Doc, e: &Element, v: &View, o: &
     if !hide && !e.text.is_empty() {
         let size = label_size(e);
         let lines: Vec<&str> = e.text.split('\n').collect();
-        let mt = measure(ctx, &e.text, size, o.sketch);
+        let face = s.face.resolve(o.sketch);
+        let mt = measure(ctx, &e.text, size, face);
         let c = arrow_label_center(&path, e);
         let pill = Rect::from_center_size(c, mt + vec2(14.0, 4.0));
         p.rect(v.rect(pill), cr(pill.height() / 2.0 * z), theme::panel_bg(), Stroke::new(1.0, color.gamma_multiply(0.3)), StrokeKind::Inside);
-        text_lines(p, v, &lines, c.x, c.y - mt.y / 2.0, size, false, color, 0.5, o.sketch);
+        let tc = s.text_color.map(|c| theme::map(c, o.dark)).unwrap_or(color);
+        text_lines(p, v, &lines, c.x, c.y - mt.y / 2.0, size, false, tc, 0.5, face);
     }
 }
 

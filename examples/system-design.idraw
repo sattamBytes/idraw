@@ -21,14 +21,16 @@
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "to": {
         "id": null,
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "style": {
         "stroke": [
@@ -50,8 +52,26 @@
         "route": "Elbow",
         "head_start": false,
         "head_end": true,
-        "flow": "None"
-      }
+        "flow": "None",
+        "pattern": "Solid",
+        "face": "Auto",
+        "text_color": null
+      },
+      "tpos": "Center",
+      "outside": false,
+      "replicas": 1,
+      "down": false,
+      "failover": false,
+      "cap": null,
+      "show_cap": false,
+      "key": "",
+      "notes": "",
+      "show_notes": false,
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0,
+      "bend": null,
+      "icon_pos": null
     },
     {
       "id": 2,
@@ -74,14 +94,16 @@
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "to": {
         "id": null,
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "style": {
         "stroke": [
@@ -103,8 +125,26 @@
         "route": "Elbow",
         "head_start": false,
         "head_end": true,
-        "flow": "None"
-      }
+        "flow": "None",
+        "pattern": "Solid",
+        "face": "Serif",
+        "text_color": null
+      },
+      "tpos": "Center",
+      "outside": false,
+      "replicas": 1,
+      "down": false,
+      "failover": false,
+      "cap": null,
+      "show_cap": false,
+      "key": "",
+      "notes": "",
+      "show_notes": false,
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0,
+      "bend": null,
+      "icon_pos": null
     },
     {
       "id": 3,
@@ -127,14 +167,16 @@
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "to": {
         "id": null,
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "style": {
         "stroke": [
@@ -156,8 +198,31 @@
         "route": "Elbow",
         "head_start": false,
         "head_end": true,
-        "flow": "None"
-      }
+        "flow": "None",
+        "pattern": "Solid",
+        "face": "Mono",
+        "text_color": [
+          225,
+          29,
+          72,
+          255
+        ]
+      },
+      "tpos": "Center",
+      "outside": false,
+      "replicas": 1,
+      "down": false,
+      "failover": false,
+      "cap": null,
+      "show_cap": false,
+      "key": "",
+      "notes": "",
+      "show_notes": false,
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0,
+      "bend": null,
+      "icon_pos": null
     },
     {
       "id": 4,
@@ -180,14 +245,16 @@
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "to": {
         "id": null,
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "style": {
         "stroke": [
@@ -209,8 +276,26 @@
         "route": "Elbow",
         "head_start": false,
         "head_end": true,
-        "flow": "None"
-      }
+        "flow": "None",
+        "pattern": "Solid",
+        "face": "Hand",
+        "text_color": null
+      },
+      "tpos": "Center",
+      "outside": false,
+      "replicas": 1,
+      "down": false,
+      "failover": false,
+      "cap": null,
+      "show_cap": false,
+      "key": "",
+      "notes": "",
+      "show_notes": false,
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0,
+      "bend": null,
+      "icon_pos": null
     },
     {
       "id": 5,
@@ -233,14 +318,16 @@
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "to": {
         "id": null,
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "style": {
         "stroke": [
@@ -262,8 +349,26 @@
         "route": "Elbow",
         "head_start": false,
         "head_end": true,
-        "flow": "None"
-      }
+        "flow": "None",
+        "pattern": "Solid",
+        "face": "Sans",
+        "text_color": null
+      },
+      "tpos": "Center",
+      "outside": false,
+      "replicas": 1,
+      "down": false,
+      "failover": false,
+      "cap": null,
+      "show_cap": false,
+      "key": "",
+      "notes": "",
+      "show_notes": false,
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0,
+      "bend": null,
+      "icon_pos": null
     },
     {
       "id": 6,
@@ -286,14 +391,16 @@
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "to": {
         "id": null,
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "style": {
         "stroke": [
@@ -315,8 +422,26 @@
         "route": "Elbow",
         "head_start": false,
         "head_end": true,
-        "flow": "None"
-      }
+        "flow": "None",
+        "pattern": "Solid",
+        "face": "Serif",
+        "text_color": null
+      },
+      "tpos": "Center",
+      "outside": false,
+      "replicas": 1,
+      "down": false,
+      "failover": false,
+      "cap": null,
+      "show_cap": false,
+      "key": "",
+      "notes": "",
+      "show_notes": false,
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0,
+      "bend": null,
+      "icon_pos": null
     },
     {
       "id": 7,
@@ -339,14 +464,16 @@
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "to": {
         "id": null,
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "style": {
         "stroke": [
@@ -368,8 +495,26 @@
         "route": "Elbow",
         "head_start": false,
         "head_end": true,
-        "flow": "None"
-      }
+        "flow": "None",
+        "pattern": "Solid",
+        "face": "Mono",
+        "text_color": null
+      },
+      "tpos": "Center",
+      "outside": false,
+      "replicas": 1,
+      "down": false,
+      "failover": false,
+      "cap": null,
+      "show_cap": false,
+      "key": "",
+      "notes": "",
+      "show_notes": false,
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0,
+      "bend": null,
+      "icon_pos": null
     },
     {
       "id": 8,
@@ -392,14 +537,16 @@
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "to": {
         "id": 3,
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "style": {
         "stroke": [
@@ -421,8 +568,26 @@
         "route": "Elbow",
         "head_start": false,
         "head_end": true,
-        "flow": "Dots"
-      }
+        "flow": "Dots",
+        "pattern": "Solid",
+        "face": "Auto",
+        "text_color": null
+      },
+      "tpos": "Center",
+      "outside": false,
+      "replicas": 1,
+      "down": false,
+      "failover": false,
+      "cap": null,
+      "show_cap": false,
+      "key": "",
+      "notes": "",
+      "show_notes": false,
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0,
+      "bend": null,
+      "icon_pos": null
     },
     {
       "id": 9,
@@ -445,14 +610,16 @@
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "to": {
         "id": 4,
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "style": {
         "stroke": [
@@ -474,8 +641,26 @@
         "route": "Elbow",
         "head_start": false,
         "head_end": true,
-        "flow": "Dots"
-      }
+        "flow": "Dots",
+        "pattern": "Solid",
+        "face": "Auto",
+        "text_color": null
+      },
+      "tpos": "Center",
+      "outside": false,
+      "replicas": 1,
+      "down": false,
+      "failover": false,
+      "cap": null,
+      "show_cap": false,
+      "key": "",
+      "notes": "",
+      "show_notes": false,
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0,
+      "bend": null,
+      "icon_pos": null
     },
     {
       "id": 10,
@@ -498,14 +683,16 @@
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "to": {
         "id": 5,
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "style": {
         "stroke": [
@@ -527,8 +714,26 @@
         "route": "Elbow",
         "head_start": false,
         "head_end": true,
-        "flow": "Dots"
-      }
+        "flow": "Dots",
+        "pattern": "Solid",
+        "face": "Auto",
+        "text_color": null
+      },
+      "tpos": "Center",
+      "outside": false,
+      "replicas": 1,
+      "down": false,
+      "failover": false,
+      "cap": null,
+      "show_cap": false,
+      "key": "",
+      "notes": "",
+      "show_notes": false,
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0,
+      "bend": null,
+      "icon_pos": null
     },
     {
       "id": 11,
@@ -551,14 +756,16 @@
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "to": {
         "id": 6,
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "style": {
         "stroke": [
@@ -580,8 +787,26 @@
         "route": "Elbow",
         "head_start": false,
         "head_end": true,
-        "flow": "None"
-      }
+        "flow": "None",
+        "pattern": "Solid",
+        "face": "Auto",
+        "text_color": null
+      },
+      "tpos": "Center",
+      "outside": false,
+      "replicas": 1,
+      "down": false,
+      "failover": false,
+      "cap": null,
+      "show_cap": false,
+      "key": "",
+      "notes": "",
+      "show_notes": false,
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0,
+      "bend": null,
+      "icon_pos": null
     },
     {
       "id": 12,
@@ -604,14 +829,16 @@
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "to": {
         "id": 7,
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "style": {
         "stroke": [
@@ -633,8 +860,26 @@
         "route": "Elbow",
         "head_start": false,
         "head_end": true,
-        "flow": "Dashes"
-      }
+        "flow": "Dashes",
+        "pattern": "Solid",
+        "face": "Auto",
+        "text_color": null
+      },
+      "tpos": "Center",
+      "outside": false,
+      "replicas": 1,
+      "down": false,
+      "failover": false,
+      "cap": null,
+      "show_cap": false,
+      "key": "",
+      "notes": "",
+      "show_notes": false,
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0,
+      "bend": null,
+      "icon_pos": null
     },
     {
       "id": 13,
@@ -657,14 +902,16 @@
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "to": {
         "id": 7,
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "style": {
         "stroke": [
@@ -686,8 +933,26 @@
         "route": "Elbow",
         "head_start": false,
         "head_end": true,
-        "flow": "Dashes"
-      }
+        "flow": "Dashes",
+        "pattern": "Solid",
+        "face": "Auto",
+        "text_color": null
+      },
+      "tpos": "Center",
+      "outside": false,
+      "replicas": 1,
+      "down": false,
+      "failover": false,
+      "cap": null,
+      "show_cap": false,
+      "key": "",
+      "notes": "",
+      "show_notes": false,
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0,
+      "bend": null,
+      "icon_pos": null
     },
     {
       "id": 14,
@@ -710,14 +975,16 @@
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "to": {
         "id": null,
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "style": {
         "stroke": [
@@ -739,8 +1006,26 @@
         "route": "Elbow",
         "head_start": false,
         "head_end": true,
-        "flow": "None"
-      }
+        "flow": "None",
+        "pattern": "Solid",
+        "face": "Hand",
+        "text_color": null
+      },
+      "tpos": "Center",
+      "outside": false,
+      "replicas": 1,
+      "down": false,
+      "failover": false,
+      "cap": null,
+      "show_cap": false,
+      "key": "",
+      "notes": "",
+      "show_notes": false,
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0,
+      "bend": null,
+      "icon_pos": null
     },
     {
       "id": 15,
@@ -763,14 +1048,16 @@
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "to": {
         "id": null,
         "p": {
           "x": 0.0,
           "y": 0.0
-        }
+        },
+        "side": null
       },
       "style": {
         "stroke": [
@@ -792,9 +1079,30 @@
         "route": "Elbow",
         "head_start": false,
         "head_end": true,
-        "flow": "None"
-      }
+        "flow": "None",
+        "pattern": "Solid",
+        "face": "Sans",
+        "text_color": null
+      },
+      "tpos": "Center",
+      "outside": false,
+      "replicas": 1,
+      "down": false,
+      "failover": false,
+      "cap": null,
+      "show_cap": false,
+      "key": "",
+      "notes": "",
+      "show_notes": false,
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0,
+      "bend": null,
+      "icon_pos": null
     }
   ],
-  "next_id": 15
+  "next_id": 15,
+  "scenarios": [],
+  "sketch": false,
+  "jumps": "Hop"
 }
