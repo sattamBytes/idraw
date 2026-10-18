@@ -212,6 +212,8 @@ pub struct App {
     autosave_check: f64,
     /// connector started by clicking a connection dot; follows the mouse until the next click
     pending_arrow: Option<(u64, u64)>,
+    /// window focus last frame, to re-send the cursor when idraw becomes active
+    was_focused: bool,
 }
 
 impl App {
@@ -289,6 +291,7 @@ impl App {
             last_saved: String::new(),
             autosave_check: 0.0,
             pending_arrow: None,
+            was_focused: true,
         }
     }
 
@@ -1666,7 +1669,17 @@ impl eframe::App for App {
             } else if matches!(self.drag, Drag::Label(_)) || resp.hover_pos().is_some_and(|h| self.label_hit(ctx, self.view().s2w(h)).is_some()) {
                 ctx.set_cursor_icon(if matches!(self.drag, Drag::Label(_)) { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
             } else {
-                ctx.set_cursor_icon(self.select_cursor(resp.hover_pos()));
+                let want = self.select_cursor(resp.hover_pos());
+                // macOS ignores cursor changes while the window is inactive, and egui won't
+                // re-send an unchanged cursor; nudge it for one frame after focus returns.
+                let focused = ctx.input(|i| i.viewport().focused).unwrap_or(true);
+                if focused && !self.was_focused && want != egui::CursorIcon::Default {
+                    ctx.set_cursor_icon(egui::CursorIcon::Default);
+                    ctx.request_repaint();
+                } else {
+                    ctx.set_cursor_icon(want);
+                }
+                self.was_focused = focused;
             }
 
             let p = ui.painter_at(rect);

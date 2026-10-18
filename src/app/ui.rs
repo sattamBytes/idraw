@@ -27,6 +27,7 @@ pub(super) fn icon_button(ui: &mut Ui, icons: &mut Icons, icon: &str, active: bo
     if let Some(t) = icons.get(ui.ctx(), icon) {
         ui.painter().image(t, Rect::from_center_size(rect.center(), vec2(18.0, 18.0)), render::UV, if active { theme::active_fg() } else { theme::text() });
     }
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
     if tip.is_empty() { resp } else { resp.on_hover_text(tip) }
 }
 
@@ -67,7 +68,7 @@ fn custom_tile(ui: &mut Ui, icons: &mut Icons, b: &CustomBoundary) -> Response {
     }
     let label = if b.name.chars().count() > 11 { format!("{}…", b.name.chars().take(10).collect::<String>()) } else { b.name.clone() };
     ui.painter().text(pos2(rect.center().x, rect.max.y - 9.0), Align2::CENTER_CENTER, label, FontId::proportional(10.5), theme::text());
-    resp.on_hover_text(format!("{}\nYour boundary · right-click to edit", b.name))
+    resp.on_hover_text(format!("{}\nYour boundary · right-click to edit", b.name)).on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 fn new_tile(ui: &mut Ui, icons: &mut Icons) -> Response {
@@ -83,7 +84,7 @@ fn new_tile(ui: &mut Ui, icons: &mut Icons) -> Response {
         ui.painter().image(t, tile.shrink(9.0), render::UV, theme::muted());
     }
     ui.painter().text(pos2(rect.center().x, rect.max.y - 9.0), Align2::CENTER_CENTER, "New…", FontId::proportional(10.5), theme::text());
-    resp.on_hover_text("Create your own boundary style")
+    resp.on_hover_text("Create your own boundary style").on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 fn section(ui: &mut Ui, title: &str) {
@@ -103,7 +104,7 @@ fn swatch(ui: &mut Ui, c: Color32, selected: bool) -> Response {
     } else {
         p.rect(rect, CornerRadius::same(5), c, Stroke::new(1.0, Color32::from_black_alpha(20)), StrokeKind::Inside);
     }
-    resp
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 fn seg<T: PartialEq + Copy>(ui: &mut Ui, cur: T, opts: &[(T, &str)]) -> Option<T> {
@@ -1232,6 +1233,7 @@ impl App {
                 let sel = pk.sel;
                 for (k, (id, label, sub)) in items.iter().enumerate() {
                     let (rect, resp) = ui.allocate_exact_size(vec2(280.0, 38.0), Sense::click());
+                    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
                     if k == sel || resp.hovered() {
                         ui.painter().rect_filled(rect, CornerRadius::same(7), theme::active_bg());
                     }
@@ -1323,6 +1325,7 @@ impl App {
                 egui::ScrollArea::vertical().max_height(380.0).show(ui, |ui| {
                     for (k, (label, hint, a)) in rows.iter().enumerate() {
                         let (rect, resp) = ui.allocate_exact_size(vec2(560.0, 32.0), Sense::click());
+                        let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
                         if k == sel || resp.hovered() {
                             ui.painter().rect_filled(rect, CornerRadius::same(7), theme::active_bg());
                         }
