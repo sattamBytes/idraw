@@ -20,8 +20,11 @@ Excalidraw's simplicity, draw.io's depth, plus animated request flows you can ex
 **Homebrew**
 
 ```bash
-brew install --cask sattamBytes/tap/idraw
+brew tap sattamBytes/tap
+brew install --cask idraw
 ```
+
+Update later with `brew upgrade --cask idraw`.
 
 **Or download** the latest `idraw-…-macos-universal.zip` from [Releases](https://github.com/sattamBytes/idraw/releases/latest), unzip it, and drag **idraw.app** into Applications.
 
