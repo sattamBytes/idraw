@@ -448,6 +448,13 @@ impl App {
                         if let Some(r) = seg(ui, s.route, &[(Route::Elbow, "Elbow"), (Route::Straight, "Straight"), (Route::Curve, "Curve")]) {
                             change = Some(Box::new(move |e| e.style.route = r));
                         }
+                        if first.bend.is_some() {
+                            if ui.button("Reset route (automatic)").clicked() {
+                                change = Some(Box::new(|e| e.bend = None));
+                            }
+                        } else {
+                            ui.label(RichText::new("Drag the line to reshape it · drag an end to reconnect").small().color(theme::muted()));
+                        }
                         if !first.text.is_empty() {
                             section(ui, "Label");
                             let cur = if first.label_off != 0.0 { -1.0 } else { first.label_t };

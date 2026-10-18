@@ -62,7 +62,9 @@
       "key": "",
       "notes": "",
       "show_notes": false,
-      "speed": "Normal"
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0
     },
     {
       "id": 2,
@@ -126,7 +128,9 @@
       "key": "",
       "notes": "",
       "show_notes": false,
-      "speed": "Normal"
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0
     },
     {
       "id": 3,
@@ -190,7 +194,9 @@
       "key": "",
       "notes": "",
       "show_notes": false,
-      "speed": "Normal"
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0
     },
     {
       "id": 4,
@@ -254,18 +260,20 @@
       "key": "",
       "notes": "",
       "show_notes": false,
-      "speed": "Normal"
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0
     },
     {
       "id": 5,
       "kind": "Node",
       "rect": {
         "min": {
-          "x": 592.0,
+          "x": 665.50415,
           "y": 292.0
         },
         "max": {
-          "x": 768.0,
+          "x": 841.50415,
           "y": 348.0
         }
       },
@@ -275,14 +283,14 @@
       "from": {
         "id": null,
         "p": {
-          "x": 0.0,
+          "x": 73.50415,
           "y": 0.0
         }
       },
       "to": {
         "id": null,
         "p": {
-          "x": 0.0,
+          "x": 73.50415,
           "y": 0.0
         }
       },
@@ -318,7 +326,9 @@
       "key": "",
       "notes": "",
       "show_notes": false,
-      "speed": "Normal"
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0
     },
     {
       "id": 6,
@@ -388,7 +398,9 @@
       "key": "",
       "notes": "",
       "show_notes": false,
-      "speed": "Normal"
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0
     },
     {
       "id": 7,
@@ -452,7 +464,9 @@
       "key": "",
       "notes": "",
       "show_notes": false,
-      "speed": "Normal"
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0
     },
     {
       "id": 8,
@@ -516,7 +530,9 @@
       "key": "",
       "notes": "",
       "show_notes": false,
-      "speed": "Normal"
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0
     },
     {
       "id": 9,
@@ -580,7 +596,9 @@
       "key": "",
       "notes": "",
       "show_notes": false,
-      "speed": "Normal"
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0
     },
     {
       "id": 10,
@@ -644,7 +662,9 @@
       "key": "",
       "notes": "",
       "show_notes": false,
-      "speed": "Normal"
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0
     },
     {
       "id": 11,
@@ -708,7 +728,9 @@
       "key": "",
       "notes": "",
       "show_notes": false,
-      "speed": "Normal"
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0
     },
     {
       "id": 12,
@@ -772,7 +794,9 @@
       "key": "",
       "notes": "",
       "show_notes": false,
-      "speed": "Normal"
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0
     },
     {
       "id": 13,
@@ -836,7 +860,9 @@
       "key": "",
       "notes": "",
       "show_notes": false,
-      "speed": "Normal"
+      "speed": "Normal",
+      "label_t": 0.49730024,
+      "label_off": -16.016113
     },
     {
       "id": 14,
@@ -900,7 +926,9 @@
       "key": "",
       "notes": "",
       "show_notes": false,
-      "speed": "Normal"
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0
     },
     {
       "id": 15,
@@ -964,7 +992,9 @@
       "key": "",
       "notes": "",
       "show_notes": false,
-      "speed": "Normal"
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0
     },
     {
       "id": 16,
@@ -1028,7 +1058,9 @@
       "key": "",
       "notes": "",
       "show_notes": false,
-      "speed": "Normal"
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0
     },
     {
       "id": 17,
@@ -1092,7 +1124,9 @@
       "key": "",
       "notes": "",
       "show_notes": false,
-      "speed": "Normal"
+      "speed": "Normal",
+      "label_t": 0.7717885,
+      "label_off": 0.0
     },
     {
       "id": 18,
@@ -1156,7 +1190,9 @@
       "key": "",
       "notes": "",
       "show_notes": false,
-      "speed": "Normal"
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0
     },
     {
       "id": 19,
@@ -1220,7 +1256,9 @@
       "key": "",
       "notes": "",
       "show_notes": false,
-      "speed": "Normal"
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0
     },
     {
       "id": 20,
@@ -1284,7 +1322,9 @@
       "key": "",
       "notes": "",
       "show_notes": false,
-      "speed": "Normal"
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0
     },
     {
       "id": 21,
@@ -1348,7 +1388,9 @@
       "key": "",
       "notes": "",
       "show_notes": false,
-      "speed": "Normal"
+      "speed": "Normal",
+      "label_t": 0.5,
+      "label_off": 0.0
     }
   ],
   "next_id": 21,

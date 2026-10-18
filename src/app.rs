@@ -101,6 +101,7 @@ enum Drag {
     ArrowEnd { id: u64, to: bool, source: Option<u64> },
     Pen(u64),
     Label(u64),
+    Bend(u64),
 }
 
 /// Quick component chooser: `/` at the cursor, or after dropping a connector on empty canvas.
@@ -846,7 +847,15 @@ impl App {
                 return;
             }
         }
-        if let Some(id) = self.doc.hit(w, 6.0 / self.zoom) {
+        let hit = self.doc.hit(w, 6.0 / self.zoom);
+        // dragging a connected line reshapes it instead of moving it
+        if let Some(id) = hit.filter(|id| self.doc.get(*id).is_some_and(|e| e.kind == Kind::Arrow && (e.from.id.is_some() || e.to.id.is_some())) && !shift) {
+            self.checkpoint();
+            self.sel = vec![id];
+            self.drag = Drag::Bend(id);
+            return;
+        }
+        if let Some(id) = hit {
             if !self.sel.contains(&id) {
                 if !shift {
                     self.sel.clear();
@@ -1099,6 +1108,12 @@ impl App {
                         *(if to { &mut e.to } else { &mut e.from }) = End { id: t, p: w };
                     }
                 }
+                Drag::Bend(id) => {
+                    let id = *id;
+                    if let Some(e) = self.doc.get_mut(id) {
+                        e.bend = Some(w);
+                    }
+                }
                 Drag::Label(id) => {
                     let id = *id;
                     if let Some(path) = self.doc.get(id).map(|e| self.doc.arrow_path(e)) {
@@ -1279,6 +1294,9 @@ impl App {
                         for q in [path[0], *path.last().unwrap()] {
                             p.circle(v.w2s(q), 5.0, Color32::WHITE, Stroke::new(1.5, theme::INDIGO));
                         }
+                        if let Some(b) = e.bend {
+                            p.circle(v.w2s(b), 5.5, theme::INDIGO, Stroke::new(2.0, Color32::WHITE));
+                        }
                     }
                 }
                 Kind::Comment => {
@@ -1426,6 +1444,11 @@ impl eframe::App for App {
                 ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
             } else if matches!(self.drag, Drag::Label(_)) || resp.hover_pos().is_some_and(|h| self.label_hit(ctx, self.view().s2w(h)).is_some()) {
                 ctx.set_cursor_icon(if matches!(self.drag, Drag::Label(_)) { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
+            } else if matches!(self.drag, Drag::Bend(_))
+                || (matches!(self.drag, Drag::None)
+                    && resp.hover_pos().and_then(|h| self.doc.hit(self.view().s2w(h), 6.0 / self.zoom)).and_then(|id| self.doc.get(id)).is_some_and(|e| e.kind == Kind::Arrow && (e.from.id.is_some() || e.to.id.is_some())))
+            {
+                ctx.set_cursor_icon(egui::CursorIcon::Move);
             }
 
             let p = ui.painter_at(rect);

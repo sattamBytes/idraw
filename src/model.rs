@@ -247,6 +247,9 @@ pub struct Element {
     pub label_t: f32,
     #[serde(default)]
     pub label_off: f32,
+    /// User-dragged point a connector must pass through (None = automatic route).
+    #[serde(default)]
+    pub bend: Option<Pos2>,
 }
 
 impl Element {
@@ -296,6 +299,7 @@ impl Element {
             speed: Speed::Normal,
             label_t: 0.5,
             label_off: 0.0,
+            bend: None,
         }
     }
 
@@ -331,6 +335,9 @@ impl Element {
         }
         if self.to.id.is_none() {
             self.to.p += d;
+        }
+        if let Some(b) = &mut self.bend {
+            *b += d;
         }
     }
 }
@@ -470,7 +477,10 @@ impl Doc {
         let (a, ka) = self.end_rect(&e.from);
         let (b, kb) = self.end_rect(&e.to);
         if e.style.route == Route::Straight {
-            return vec![boundary(a, ka, b.center()), boundary(b, kb, a.center())];
+            return match e.bend {
+                Some(m) => vec![boundary(a, ka, m), m, boundary(b, kb, m)],
+                None => vec![boundary(a, ka, b.center()), boundary(b, kb, a.center())],
+            };
         }
         let area = a.union(b).expand(240.0);
         let obstacles: Vec<Rect> = self
@@ -488,13 +498,27 @@ impl Doc {
                 f.to_bits().hash(&mut h);
             }
         }
+        if let Some(m) = e.bend {
+            (m.x.to_bits(), m.y.to_bits()).hash(&mut h);
+        }
         let key = h.finish();
         if let Some((k, p)) = self.route_cache.borrow().get(&e.id) {
             if *k == key {
                 return p.clone();
             }
         }
-        let p = route(a, ka.is_some(), b, kb.is_some(), &obstacles, fa, fb);
+        let p = match e.bend {
+            // two automatic legs joined at the user's bend point
+            Some(m) => {
+                let pt = Rect::from_center_size(m, Vec2::ZERO);
+                let mut p = route(a, ka.is_some(), pt, false, &obstacles, fa, pt, None);
+                let back = (p.len() >= 2).then(|| (p[p.len() - 1] - p[p.len() - 2]).normalized());
+                p.pop();
+                p.extend(route(pt, false, b, kb.is_some(), &obstacles, pt, fb, back));
+                simplify(p)
+            }
+            None => route(a, ka.is_some(), b, kb.is_some(), &obstacles, fa, fb, None),
+        };
         self.route_cache.borrow_mut().insert(e.id, (key, p.clone()));
         p
     }
@@ -504,6 +528,12 @@ impl Doc {
         let c = self.arrow_corners(e);
         let n = c.len();
         match e.style.route {
+            Route::Curve if e.bend.is_some() && n >= 2 => {
+                // smooth curve through the bend point
+                let (s, t, m) = (c[0], c[n - 1], e.bend.unwrap());
+                let ctrl = (m.to_vec2() * 2.0 - (s.to_vec2() + t.to_vec2()) / 2.0).to_pos2();
+                (0..=32).map(|i| quad(s, ctrl, t, i as f32 / 32.0)).collect()
+            }
             Route::Curve if n >= 3 => {
                 let (c1, c2) = if n == 3 { (c[1], c[1]) } else { (c[1], c[n - 2]) };
                 (0..=32).map(|i| cubic(c[0], c1, c2, c[n - 1], i as f32 / 32.0)).collect()
@@ -561,7 +591,8 @@ fn sides(r: Rect, bound: bool) -> Vec<(Pos2, Vec2)> {
 /// Picks the cheapest right-angle route over all side pairs and L/Z shapes:
 /// length + bends, heavily penalising paths through other shapes or back through the endpoints.
 // ponytail: candidate search, not a full visibility-graph A*; add that if dense diagrams need it.
-fn route(a: Rect, ab: bool, b: Rect, bb: bool, obstacles: &[Rect], fa: Rect, fb: Rect) -> Vec<Pos2> {
+#[allow(clippy::too_many_arguments)]
+fn route(a: Rect, ab: bool, b: Rect, bb: bool, obstacles: &[Rect], fa: Rect, fb: Rect, back: Option<Vec2>) -> Vec<Pos2> {
     let mut best = (f32::MAX, vec![a.center(), b.center()]);
     for (s, ds) in sides(a, ab) {
         for (t, dt) in sides(b, bb) {
@@ -573,7 +604,13 @@ fn route(a: Rect, ab: bool, b: Rect, bb: bool, obstacles: &[Rect], fa: Rect, fb:
                 p.push(t1);
                 p.push(t);
                 let p = simplify(p);
-                let c = route_cost(&p, fa, ab, fb, bb, obstacles);
+                let mut c = route_cost(&p, fa, ab, fb, bb, obstacles);
+                // no U-turn where this leg continues a previous one
+                if let (Some(bk), true) = (back, p.len() >= 2) {
+                    if (p[1] - p[0]).normalized().dot(bk) < -0.5 {
+                        c += 2000.0;
+                    }
+                }
                 if c < best.0 - 0.01 {
                     best = (c, p);
                 }
@@ -591,7 +628,7 @@ fn simplify(p: Vec<Pos2>) -> Vec<Pos2> {
         }
         if out.len() >= 2 {
             let (a, b) = (out[out.len() - 2], out[out.len() - 1]);
-            if ((b - a).x * (q - b).y - (b - a).y * (q - b).x).abs() < 0.01 {
+            if ((b - a).x * (q - b).y - (b - a).y * (q - b).x).abs() < 0.01 && (b - a).dot(q - b) > 0.0 {
                 out.pop();
             }
         }
@@ -1195,6 +1232,27 @@ mod tests {
         assert_eq!((x, a), (110., 0.0));
         let (_, top, _) = text_place(r, TextPos::Bottom, true, s, 10.);
         assert!(top > 60.);
+    }
+
+    #[test]
+    fn bend_keeps_ends_attached() {
+        let mut d = Doc::default();
+        let a = d.add(rect_el(0., 0.));
+        let b = d.add(rect_el(400., 0.));
+        let mut arr = Element::new(Kind::Arrow, Rect::ZERO);
+        arr.from.id = Some(a);
+        arr.to.id = Some(b);
+        arr.bend = Some(pos2(250., 150.));
+        let ar = d.add(arr);
+        let p = d.arrow_corners(d.get(ar).unwrap());
+        assert!(dist_to_path(&p, pos2(250., 150.)) < 0.5, "passes through bend: {p:?}");
+        let ra = Rect::from_min_size(pos2(0., 0.), vec2(100., 50.));
+        assert!(ra.expand(0.5).contains(p[0]), "starts on a");
+        for route in [Route::Straight, Route::Curve] {
+            d.get_mut(ar).unwrap().style.route = route;
+            let p = d.arrow_path(d.get(ar).unwrap());
+            assert!(dist_to_path(&p, pos2(250., 150.)) < 3.0, "{route:?} passes near bend");
+        }
     }
 
     #[test]
