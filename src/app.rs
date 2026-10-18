@@ -1324,7 +1324,11 @@ impl App {
         }
         // connector started by a click: it follows the mouse; the next click places it
         if let Some((id, src)) = self.pending_arrow {
-            let sp = ctx.input(|i| i.pointer.latest_pos()).or(hover).unwrap_or_default();
+            let placing = resp.clicked() || resp.drag_stopped();
+            // where the click/tap landed; on touch screens the pointer is gone between taps,
+            // so with no position the connector just waits where it is
+            let pos = if placing { resp.interact_pointer_pos() } else { None }.or_else(|| ctx.input(|i| i.pointer.latest_pos())).or(hover);
+            let Some(sp) = pos else { return };
             let w = v.s2w(sp);
             let (t, side) = self.drop_at(w, Some(src));
             self.drop_target = t;
@@ -1333,7 +1337,7 @@ impl App {
                 e.to = End { id: t, p: w, side };
             }
             // place on click, or on release if you pressed and dragged to the target
-            if resp.clicked() || resp.drag_stopped() {
+            if placing {
                 self.pending_arrow = None;
                 self.drop_target = None;
                 self.drop_side = None;
