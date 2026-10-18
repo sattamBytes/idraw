@@ -381,6 +381,7 @@ impl App {
         type Edit = Box<dyn Fn(&mut Element)>;
         let mut change: Option<Edit> = None;
         let mut action = "";
+        let mut show_failures = false;
         let max_h = (self.canvas.height() - 150.0).max(200.0);
         egui::Area::new(Id::new("props")).anchor(Align2::LEFT_TOP, vec2(12.0, 62.0)).show(ctx, |ui| {
             panel().inner_margin(Margin::same(12)).show(ui, |ui| {
@@ -474,10 +475,9 @@ impl App {
                         let mut down = first.down;
                         if ui.checkbox(&mut down, "Mark as down").changed() {
                             change = Some(Box::new(move |e| e.down = down));
+                            show_failures = down;
                         }
-                        if down && !self.failures {
-                            ui.label(RichText::new("Press F to view failures").small().color(theme::muted()));
-                        }
+                        ui.label(RichText::new(if self.failures { "Failure view on · F to hide" } else { "Shown in failure view · press F" }).small().color(theme::muted()));
                     }
                     if has(&[Kind::Node]) {
                         section(ui, "Replicas");
@@ -553,6 +553,11 @@ impl App {
                     f(e);
                 }
             }
+        }
+        // marking something down should be visible right away
+        if show_failures && !self.failures {
+            self.failures = true;
+            self.toast(ctx, "Failure view on: press F to toggle");
         }
         match action {
             "icon" => {
