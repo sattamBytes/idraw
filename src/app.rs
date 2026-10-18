@@ -171,11 +171,6 @@ pub struct App {
     sel: Vec<u64>,
     tool: Tool,
     offset: Vec2,
-    /// canvas glide target (keeps selected / edited items clear of the panels)
-    pan_to: Option<Vec2>,
-    reveal: Option<u64>,
-    last_sel: Vec<u64>,
-    last_edit: Option<u64>,
     zoom: f32,
     canvas: Rect,
     drag: Drag,
@@ -215,6 +210,8 @@ pub struct App {
     code_text: String,
     code_err: Option<String>,
     code_w: f32,
+    left_w: f32,
+    lib_w: f32,
     anim: Option<(Vec<(u64, Rect, Rect)>, f64)>,
     collab: Option<Collab>,
     collab_panel: bool,
@@ -262,10 +259,6 @@ impl App {
             sel: vec![],
             tool: Tool::Select,
             offset: Vec2::ZERO,
-            pan_to: None,
-            reveal: None,
-            last_sel: vec![],
-            last_edit: None,
             zoom: 1.0,
             canvas: Rect::ZERO,
             drag: Drag::None,
@@ -303,6 +296,8 @@ impl App {
             code_text: String::new(),
             code_err: None,
             code_w: 0.0,
+            left_w: 0.0,
+            lib_w: 0.0,
             anim: None,
             collab: None,
             collab_panel: false,
@@ -366,66 +361,10 @@ impl App {
             self.offset = Vec2::ZERO;
             return;
         };
-        // keep clear of the floating panels
-        let c = Rect::from_min_max(self.canvas.min + vec2(if self.sel.is_empty() { 40.0 } else { 260.0 }, 70.0), self.canvas.max - vec2(if self.library { 330.0 } else { 40.0 }, 70.0));
+        // keep clear of the floating bars
+        let c = self.canvas.shrink2(vec2(40.0, 70.0));
         self.zoom = ((c.width() - 40.0) / b.width()).min((c.height() - 40.0) / b.height()).clamp(0.2, 1.5);
         self.offset = c.center() - self.canvas.min - b.center().to_vec2() * self.zoom;
-    }
-
-    /// Glides the canvas so a newly selected or edited item isn't hidden under the floating panels.
-    fn keep_visible(&mut self, ctx: &Context) {
-        if self.editing.is_some() && self.editing != self.last_edit {
-            self.reveal = self.editing;
-        } else if self.sel.len() == 1 && self.sel != self.last_sel {
-            self.reveal = Some(self.sel[0]);
-        }
-        self.last_sel.clone_from(&self.sel);
-        self.last_edit = self.editing;
-        let (down, moved) = ctx.input(|i| (i.pointer.any_down(), i.raw_scroll_delta != Vec2::ZERO || i.zoom_delta() != 1.0));
-        if down || moved {
-            self.pan_to = None; // the user is steering
-        } else if let Some(id) = self.reveal.take() {
-            self.pan_to = self.doc.get(id).cloned().and_then(|e| self.reveal_offset(&e));
-        }
-        if let Some(t) = self.pan_to {
-            let d = t - self.offset;
-            if d.length() < 0.5 {
-                self.offset = t;
-                self.pan_to = None;
-            } else {
-                self.offset += d * (ctx.input(|i| i.stable_dt) * 14.0).min(1.0);
-                ctx.request_repaint();
-            }
-        }
-    }
-
-    /// Canvas offset that brings `e` (or, when it's too big, its label side) into the area the panels leave free.
-    fn reveal_offset(&self, e: &Element) -> Option<Vec2> {
-        let props = !self.sel.is_empty() && self.scn_play.is_none() && self.rec.is_none() && !self.failures;
-        // ponytail: panel sizes mirrored from ui.rs (PANEL_W + margins, library 284 + margins)
-        let left = if props { 12.0 + 228.0 + 24.0 + 20.0 } else { 20.0 };
-        let right = self.code_w + if self.library { 12.0 + 284.0 + 20.0 + 20.0 } else { 20.0 };
-        let free = Rect::from_min_max(self.canvas.min + vec2(left, 70.0), self.canvas.max - vec2(right, 70.0));
-        let w = match e.kind {
-            Kind::Pen => return None,
-            Kind::Arrow => Rect::from_center_size(render::arrow_label_center(&self.doc.arrow_path(e), e), vec2(140.0, 36.0)),
-            _ => e.rect.expand(10.0),
-        };
-        let mut r = self.view().rect(w);
-        // too big for the free area: keep the label's side in view
-        let win = 320.0f32.min(free.width());
-        if r.width() > free.width() {
-            r.min.x += e.tpos.fx() * (r.width() - win);
-            r.max.x = r.min.x + win;
-        }
-        let win = 240.0f32.min(free.height());
-        if r.height() > free.height() {
-            r.min.y += e.tpos.fy() * (r.height() - win);
-            r.max.y = r.min.y + win;
-        }
-        let shift = |lo: f32, hi: f32, a: f32, b: f32| if lo < a { a - lo } else if hi > b { b - hi } else { 0.0 };
-        let d = vec2(shift(r.min.x, r.max.x, free.min.x, free.max.x), shift(r.min.y, r.max.y, free.min.y, free.max.y));
-        (d != Vec2::ZERO).then(|| self.offset + d)
     }
 
     fn center_on(&mut self, w: Pos2) {
@@ -1876,6 +1815,8 @@ impl eframe::App for App {
             e.rect.max = e.rect.min + render::measure(ctx, &e.text, e.style.font, sketch);
         }
 
+        self.props_panel(ctx);
+        self.library_panel(ctx);
         self.code_panel(ctx);
 
         egui::CentralPanel::default().frame(Frame::new().fill(theme::canvas_bg())).show(ctx, |ui| {
@@ -1947,13 +1888,8 @@ impl eframe::App for App {
         });
 
         self.toolbar(ctx);
-        self.top_left(ctx);
         self.top_right(ctx);
-        self.library_panel(ctx);
         self.drag_ghost(ctx);
-        if self.scn_play.is_none() && self.rec.is_none() && !self.failures {
-            self.props_panel(ctx);
-        }
         self.bottom_bars(ctx);
         self.scenario_panel(ctx);
         self.recording_banner(ctx);
@@ -1962,7 +1898,6 @@ impl eframe::App for App {
         self.palette_popup(ctx);
         self.text_editor(ctx);
         self.toast_view(ctx);
-        self.keep_visible(ctx);
 
         let animating = self.anim.is_some() || (self.playing && self.doc.elements.iter().any(|e| e.kind == Kind::Arrow && (e.style.flow != Flow::None || (self.failures && e.failover))));
         self.mode_bars(ctx);

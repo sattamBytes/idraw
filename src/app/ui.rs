@@ -4,6 +4,7 @@ use super::*;
 use eframe::egui::{Align, Layout, Margin, Order, RichText, Shadow, TextEdit, Ui};
 
 const PANEL_W: f32 = 228.0;
+const LIB_W: f32 = 284.0;
 
 pub(super) fn panel() -> Frame {
     Frame::new()
@@ -12,6 +13,32 @@ pub(super) fn panel() -> Frame {
         .stroke(Stroke::new(1.0, theme::panel_border()))
         .shadow(Shadow { offset: [0, 4], blur: 18, spread: 0, color: Color32::from_black_alpha(if theme::dark() { 70 } else { 16 }) })
         .inner_margin(Margin::same(5))
+}
+
+/// Room around a docked sidebar card, in the canvas colour so the card floats.
+fn gutter(left: bool) -> Frame {
+    let (l, r) = if left { (10, 0) } else { (0, 10) };
+    Frame::new().fill(theme::canvas_bg()).inner_margin(Margin { left: l, right: r, top: 10, bottom: 10 })
+}
+
+/// What the left sidebar shows with nothing to edit.
+fn props_empty(ui: &mut Ui, locked: bool) {
+    ui.add_space(6.0);
+    if locked {
+        section(ui, "Editing paused");
+        ui.label(RichText::new("Styles come back when the scenario, recording or outage simulation ends.").size(12.0).color(theme::muted()));
+        return;
+    }
+    section(ui, "Nothing selected");
+    ui.label(RichText::new("Select a shape, icon or connector to style it here.").size(12.0).color(theme::muted()));
+    ui.add_space(12.0);
+    for (k, what) in [("Double-click", "edit text"), ("Drag a dot", "connect"), ("Space + drag", "pan"), ("⌘K", "all commands"), ("L", "components"), ("⌘/", "diagram as code")] {
+        ui.horizontal(|ui| {
+            Frame::new().fill(theme::hover()).corner_radius(5).inner_margin(Margin::symmetric(6, 2)).show(ui, |ui| ui.label(RichText::new(k).size(11.5).color(theme::text())));
+            ui.label(RichText::new(what).size(12.0).color(theme::muted()));
+        });
+        ui.add_space(2.0);
+    }
 }
 
 pub(super) fn icon_button(ui: &mut Ui, icons: &mut Icons, icon: &str, active: bool, tip: &str) -> Response {
@@ -200,11 +227,20 @@ fn suggest(cat: &str) -> &'static [&'static str] {
 
 impl App {
     fn right_x(&self) -> f32 {
-        -12.0 - self.code_w
+        -12.0 - self.code_w - self.lib_w
+    }
+
+    /// Horizontal shift that centres floating bars over the canvas between the sidebars.
+    fn mid_x(&self) -> f32 {
+        (self.left_w - self.code_w - self.lib_w) / 2.0
+    }
+
+    fn left_x(&self) -> f32 {
+        12.0 + self.left_w
     }
 
     pub(super) fn toolbar(&mut self, ctx: &Context) {
-        egui::Area::new(Id::new("toolbar")).anchor(Align2::CENTER_TOP, vec2(-self.code_w / 2.0, 10.0)).show(ctx, |ui| {
+        egui::Area::new(Id::new("toolbar")).anchor(Align2::CENTER_TOP, vec2(self.mid_x(), 10.0)).show(ctx, |ui| {
             panel().show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
@@ -234,10 +270,9 @@ impl App {
         });
     }
 
-    pub(super) fn top_left(&mut self, ctx: &Context) {
+    fn top_left(&mut self, ui: &mut Ui) {
+        let ctx = &ui.ctx().clone();
         let mut save_now = false;
-        egui::Area::new(Id::new("menu")).anchor(Align2::LEFT_TOP, vec2(12.0, 10.0)).show(ctx, |ui| {
-            panel().show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if icon_button(ui, &mut self.icons, "menu", self.menu, "Menu").clicked() {
                         self.menu = !self.menu;
@@ -261,8 +296,6 @@ impl App {
                     }
                     ui.add_space(6.0);
                 });
-            });
-        });
         if save_now {
             self.save(ctx, true);
         }
@@ -356,14 +389,14 @@ impl App {
 
     pub(super) fn library_panel(&mut self, ctx: &Context) {
         if !self.library {
+            self.lib_w = 0.0;
             return;
         }
-        let h = (self.canvas.height() - 300.0).max(160.0);
         let mut pick: Option<&'static str> = None;
-        egui::Area::new(Id::new("library")).anchor(Align2::RIGHT_TOP, vec2(self.right_x(), if self.code_open { 10.0 } else { 62.0 })).show(ctx, |ui| {
+        let r = egui::SidePanel::right("library").exact_width(LIB_W + 32.0).resizable(false).show_separator_line(false).frame(gutter(false)).show(ctx, |ui| {
             panel().inner_margin(Margin::same(10)).show(ui, |ui| {
-                ui.set_width(284.0);
-                ui.set_max_height(h + 160.0); // before any widget: it resets the cursor
+                ui.set_width(LIB_W);
+                ui.set_min_height(ui.available_height());
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(if self.replace_icon { "Pick a new icon" } else { "Components" }).strong().size(14.0));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -385,7 +418,7 @@ impl App {
                 ui.add_space(2.0);
                 let q = self.lib_query.clone();
                 let (mut custom_pick, mut custom_edit, mut custom_del, mut custom_new) = (None, None, None, false);
-                egui::ScrollArea::vertical().max_height(h).show(ui, |ui| {
+                egui::ScrollArea::vertical().max_height(ui.available_height() - 26.0).auto_shrink(false).show(ui, |ui| {
                     for cat in icons::categories() {
                         if self.lib_filter.is_some_and(|f| f != cat) || (self.replace_icon && (cat == "Boundaries" || cat == "Shapes")) {
                             continue;
@@ -465,6 +498,7 @@ impl App {
                 });
             });
         });
+        self.lib_w = r.response.rect.width();
         match pick {
             Some("::icons-folder") => self.run(ctx, "icons-folder"),
             Some("::custom") => self.insert_custom_boundary(self.lib_custom),
@@ -512,7 +546,28 @@ impl App {
         }
     }
 
+    /// Left sidebar: file header, then the selection's properties.
     pub(super) fn props_panel(&mut self, ctx: &Context) {
+        let r = egui::SidePanel::left("props").exact_width(PANEL_W + 36.0).resizable(false).show_separator_line(false).frame(gutter(true)).show(ctx, |ui| {
+            panel().inner_margin(Margin::same(12)).show(ui, |ui| {
+                ui.set_width(PANEL_W);
+                ui.set_min_height(ui.available_height());
+                self.top_left(ui);
+                ui.add_space(4.0);
+                ui.separator();
+                let locked = self.scn_play.is_some() || self.rec.is_some() || self.failures;
+                if locked || self.sel.is_empty() {
+                    props_empty(ui, locked);
+                } else {
+                    self.props_body(ui);
+                }
+            });
+        });
+        self.left_w = r.response.rect.width();
+    }
+
+    fn props_body(&mut self, ui: &mut Ui) {
+        let ctx = &ui.ctx().clone();
         let els: Vec<Element> = self.doc.elements.iter().filter(|e| self.sel.contains(&e.id)).cloned().collect();
         let Some(first) = els.first().cloned() else { return };
         let s = first.style;
@@ -520,13 +575,7 @@ impl App {
         type Edit = Box<dyn Fn(&mut Element)>;
         let mut change: Option<Edit> = None;
         let mut action = "";
-        let max_h = (self.canvas.height() - 150.0).max(200.0);
-        egui::Area::new(Id::new("props")).anchor(Align2::LEFT_TOP, vec2(12.0, 62.0)).show(ctx, |ui| {
-            panel().inner_margin(Margin::same(12)).show(ui, |ui| {
-                ui.set_width(PANEL_W);
-                // Areas cap content at last frame's size; let the panel grow when the selection changes.
-                ui.set_max_height(max_h);
-                egui::ScrollArea::vertical().max_height(max_h).show(ui, |ui| {
+                egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 4.0;
                     if !has(&[Kind::Comment]) {
                         section(ui, if has(&[Kind::Node]) { "Accent" } else { "Stroke" });
@@ -780,8 +829,6 @@ impl App {
                         }
                     });
                 });
-            });
-        });
         if let Some(f) = change {
             self.checkpoint();
             for id in self.sel.clone() {
@@ -826,7 +873,7 @@ impl App {
     }
 
     pub(super) fn bottom_bars(&mut self, ctx: &Context) {
-        egui::Area::new(Id::new("zoom")).anchor(Align2::LEFT_BOTTOM, vec2(12.0, -12.0)).show(ctx, |ui| {
+        egui::Area::new(Id::new("zoom")).anchor(Align2::LEFT_BOTTOM, vec2(self.left_x(), -12.0)).show(ctx, |ui| {
             panel().show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
@@ -1003,7 +1050,7 @@ impl App {
         let mut act = "";
         if let Some((name, nodes)) = &self.rec {
             let (name, n) = (name.clone(), nodes.len());
-            egui::Area::new(Id::new("rec")).anchor(Align2::CENTER_TOP, vec2(-self.code_w / 2.0, 64.0)).order(Order::Foreground).show(ctx, |ui| {
+            egui::Area::new(Id::new("rec")).anchor(Align2::CENTER_TOP, vec2(self.mid_x(), 64.0)).order(Order::Foreground).show(ctx, |ui| {
                 panel().inner_margin(Margin::symmetric(14, 8)).show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new("●").color(theme::RED).size(16.0));
@@ -1020,7 +1067,7 @@ impl App {
             });
         } else if let Some((i, _)) = self.scn_play {
             let name = self.doc.scenarios.get(i).map(|s| s.name.clone()).unwrap_or_default();
-            egui::Area::new(Id::new("playing")).anchor(Align2::CENTER_TOP, vec2(-self.code_w / 2.0, 64.0)).order(Order::Foreground).show(ctx, |ui| {
+            egui::Area::new(Id::new("playing")).anchor(Align2::CENTER_TOP, vec2(self.mid_x(), 64.0)).order(Order::Foreground).show(ctx, |ui| {
                 panel().inner_margin(Margin::symmetric(14, 8)).show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(format!("▶  {name}")).strong());
@@ -1050,9 +1097,10 @@ impl App {
 
     /// Create / edit a custom boundary: name, header icon, color, line style, live preview.
     pub(super) fn boundary_editor(&mut self, ctx: &Context) {
+        let mid = self.mid_x();
         let Some(ed) = &mut self.bound_editor else { return };
         let mut act = "";
-        egui::Area::new(Id::new("bound-editor")).anchor(Align2::CENTER_CENTER, vec2(-self.code_w / 2.0, 0.0)).order(Order::Foreground).show(ctx, |ui| {
+        egui::Area::new(Id::new("bound-editor")).anchor(Align2::CENTER_CENTER, vec2(mid, 0.0)).order(Order::Foreground).show(ctx, |ui| {
             panel().inner_margin(Margin::same(16)).show(ui, |ui| {
                 ui.set_width(380.0);
                 ui.label(RichText::new(if ed.idx.is_some() { "Edit boundary" } else { "New boundary" }).strong().size(15.0));
@@ -1192,7 +1240,7 @@ impl App {
         let mut act = "";
         if self.failures {
             let down = self.doc.elements.iter().filter(|e| e.down).count();
-            egui::Area::new(Id::new("outage")).anchor(Align2::CENTER_TOP, vec2(-self.code_w / 2.0, 64.0)).order(Order::Foreground).show(ctx, |ui| {
+            egui::Area::new(Id::new("outage")).anchor(Align2::CENTER_TOP, vec2(self.mid_x(), 64.0)).order(Order::Foreground).show(ctx, |ui| {
                 panel().inner_margin(Margin::symmetric(14, 8)).show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new("⚠  Outage simulation").color(theme::RED).strong());
@@ -1208,7 +1256,7 @@ impl App {
             });
         } else if self.tool == Tool::Pen {
             let n = self.doc.elements.iter().filter(|e| e.kind == Kind::Pen).count();
-            egui::Area::new(Id::new("penbar")).anchor(Align2::CENTER_TOP, vec2(-self.code_w / 2.0, 64.0)).order(Order::Foreground).show(ctx, |ui| {
+            egui::Area::new(Id::new("penbar")).anchor(Align2::CENTER_TOP, vec2(self.mid_x(), 64.0)).order(Order::Foreground).show(ctx, |ui| {
                 panel().inner_margin(Margin::symmetric(14, 6)).show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new("Drawing").strong());
@@ -1238,7 +1286,7 @@ impl App {
             return;
         }
         let mut act = "";
-        egui::Area::new(Id::new("collab")).anchor(Align2::CENTER_CENTER, vec2(-self.code_w / 2.0, 0.0)).order(Order::Foreground).show(ctx, |ui| {
+        egui::Area::new(Id::new("collab")).anchor(Align2::CENTER_CENTER, vec2(self.mid_x(), 0.0)).order(Order::Foreground).show(ctx, |ui| {
             panel().inner_margin(Margin::same(16)).show(ui, |ui| {
                 ui.set_width(380.0);
                 ui.horizontal(|ui| {
@@ -1443,7 +1491,7 @@ impl App {
         }
         let (up, down, enter, esc) = ctx.input(|i| (i.key_pressed(Key::ArrowUp), i.key_pressed(Key::ArrowDown), i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
         let (mut run, mut close) = (None, esc);
-        egui::Area::new(Id::new("palette")).anchor(Align2::CENTER_TOP, vec2(-self.code_w / 2.0, 90.0)).order(Order::Foreground).show(ctx, |ui| {
+        egui::Area::new(Id::new("palette")).anchor(Align2::CENTER_TOP, vec2(self.mid_x(), 90.0)).order(Order::Foreground).show(ctx, |ui| {
             panel().inner_margin(Margin::same(10)).show(ui, |ui| {
                 ui.set_width(560.0);
                 ui.set_max_height(440.0); // before any widget: it resets the cursor
@@ -1638,7 +1686,7 @@ impl App {
             self.toast = None;
             return;
         }
-        egui::Area::new(Id::new("toast")).anchor(Align2::CENTER_BOTTOM, vec2(-self.code_w / 2.0, -24.0)).order(Order::Tooltip).show(ctx, |ui| {
+        egui::Area::new(Id::new("toast")).anchor(Align2::CENTER_BOTTOM, vec2(self.mid_x(), -24.0)).order(Order::Tooltip).show(ctx, |ui| {
             Frame::new().fill(Color32::from_rgb(0x11, 0x18, 0x27)).corner_radius(10).inner_margin(Margin::symmetric(14, 9)).show(ui, |ui| {
                 ui.label(RichText::new(msg).color(Color32::WHITE));
             });
