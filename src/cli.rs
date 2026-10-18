@@ -51,7 +51,8 @@ fn report(r: Result<bool, String>) -> i32 {
 fn load(rest: &[String]) -> Result<(PathBuf, Doc, Vec<String>), String> {
     let file = rest.iter().find(|a| !a.starts_with('-')).ok_or("which file? e.g. idraw check diagram.idraw")?;
     let text = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
-    let (doc, warn) = lenient::parse(&text).map_err(|e| format!("{file}: {e}"))?;
+    let (mut doc, warn) = lenient::parse(&text).map_err(|e| format!("{file}: {e}"))?;
+    doc.fit_nodes();
     Ok((PathBuf::from(file), doc, warn))
 }
 
@@ -134,14 +135,6 @@ fn check(rest: &[String]) -> Result<bool, String> {
             let room = e.rect.width() * if e.kind == Kind::Rect || e.kind == Kind::Sticky { 0.9 } else { 0.7 };
             if long * e.style.font * 0.55 > room {
                 tips.push(format!("{}: text is probably wider than the shape; widen it to ~{:.0} or break the line", name(e), long * e.style.font * 0.55 / 0.85));
-            }
-        }
-        if e.kind == Kind::Node {
-            let mut lines = e.text.lines();
-            let (t, s) = (lines.next().unwrap_or(""), lines.next().unwrap_or(""));
-            let room = e.rect.max.x - node_layout(e.rect).text_x - 4.0;
-            if t.chars().count() as f32 * NODE_TITLE * 0.5 > room || s.chars().count() as f32 * NODE_SUB * 0.5 > room {
-                tips.push(format!("{}: title/subtitle may be cut off; make it wider than {:.0} or shorten the text", name(e), e.rect.width()));
             }
         }
     }

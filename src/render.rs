@@ -274,11 +274,12 @@ fn draw_node(p: &Painter, ctx: &Context, e: &Element, v: &View, icons: &mut Icon
         p.image(tex, v.rect(ir), UV, if color_icon { Color32::WHITE } else { accent });
     }
     if !hide {
-        let (title, sub) = node_text(&e.text);
-        let (tt, st) = node_text_tops(sub.len());
+        let (title, sub) = node_lines(e);
+        let (title, sub): (Vec<&str>, Vec<&str>) = (title.iter().map(|s| s.as_str()).collect(), sub.iter().map(|s| s.as_str()).collect());
+        let (tt, st) = node_text_tops(title.len(), sub.len());
         let cy = r.center().y;
         let face = e.style.face.resolve(o.sketch);
-        text_lines(p, v, &[title], l.text_x, cy + tt, NODE_TITLE, true, m(e.style.text_color.unwrap_or(INK)), 0.0, face);
+        text_lines(p, v, &title, l.text_x, cy + tt, NODE_TITLE, true, m(e.style.text_color.unwrap_or(INK)), 0.0, face);
         text_lines(p, v, &sub, l.text_x, cy + st, NODE_SUB, false, m(MUTED), 0.0, face);
     }
     let pill = |p: &Painter, center: Pos2, label: &str, bg: Color32| {

@@ -1617,12 +1617,39 @@ pub fn node_text(t: &str) -> (&str, Vec<&str>) {
     (it.next().unwrap_or(""), it.collect())
 }
 
-/// Vertical offset (from node center) of each text line's top: title first.
-pub fn node_text_tops(sub_lines: usize) -> (f32, f32) {
-    let th = NODE_TITLE * LINE_H;
-    let sh = NODE_SUB * LINE_H;
-    let total = th + sh * sub_lines as f32;
+/// Vertical offset (from node center) of the title's top and the subtitle's top.
+pub fn node_text_tops(title_lines: usize, sub_lines: usize) -> (f32, f32) {
+    let th = NODE_TITLE * LINE_H * title_lines as f32;
+    let total = th + NODE_SUB * LINE_H * sub_lines as f32;
     (-total / 2.0, -total / 2.0 + th)
+}
+
+/// A component's title and subtitle lines, wrapped to fit the card.
+pub fn node_lines(e: &Element) -> (Vec<String>, Vec<String>) {
+    let (t, sub) = node_text(&e.text);
+    let room = e.rect.max.x - node_layout(e.rect).text_x - 10.0;
+    // ponytail: character-count estimate so the app and exports wrap identically
+    let title = wrap(t, (room / (NODE_TITLE * 0.5)).max(4.0) as usize);
+    let sub = sub.iter().flat_map(|s| wrap(s, (room / (NODE_SUB * 0.5)).max(4.0) as usize)).collect();
+    (title, sub)
+}
+
+/// Card height that fits the wrapped title and subtitle.
+pub fn node_height(e: &Element) -> f32 {
+    let (t, s) = node_lines(e);
+    (t.len() as f32 * NODE_TITLE * LINE_H + s.len() as f32 * NODE_SUB * LINE_H + 22.0).max(NODE_SIZE.y)
+}
+
+impl Doc {
+    /// Grows component cards whose wrapped text no longer fits (never shrinks a card you made taller).
+    pub fn fit_nodes(&mut self) {
+        for e in self.elements.iter_mut().filter(|e| e.kind == Kind::Node) {
+            let h = node_height(e);
+            if e.rect.height() < h - 0.5 {
+                e.rect.max.y = e.rect.min.y + h;
+            }
+        }
+    }
 }
 
 // ---------- sketch (hand-drawn) geometry ----------
@@ -1896,6 +1923,19 @@ mod tests {
         assert_eq!(p[0], pos2(0., 4.));
         assert!((p[1].x - 96.0).abs() < 0.01 && (p[1].y - 4.0).abs() < 0.01, "{p:?}");
         assert_eq!(p[2], pos2(96., 100.));
+    }
+
+    #[test]
+    fn long_card_text_wraps_and_grows_the_card() {
+        let mut d = Doc::default();
+        let id = d.add(Element::node("aws-lambda", pos2(0., 0.)));
+        assert_eq!(d.get(id).unwrap().rect.height(), NODE_SIZE.y);
+        d.get_mut(id).unwrap().text = "Lambda\nAWS · Serverless functions".into();
+        let (t, s) = node_lines(d.get(id).unwrap());
+        assert_eq!((t.len(), s.len()), (1, 2), "{s:?}");
+        d.fit_nodes();
+        let e = d.get(id).unwrap();
+        assert!(e.rect.height() > NODE_SIZE.y && e.rect.height() >= node_height(e) - 0.5);
     }
 
     #[test]

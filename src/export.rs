@@ -283,9 +283,10 @@ fn node(o: &mut String, c: &Ctx, e: &Element) {
         let _ = write!(o, r#"<rect x="{:.1}" y="{:.1}" width="32" height="32" rx="8" {}/>"#, l.tile.min.x, l.tile.min.y, paint("fill", c.m(tint(accent, 0.12))));
     }
     icon_svg(o, &e.icon, if color_icon { l.tile } else { l.icon }, accent);
-    let (title, sub) = node_text(&e.text);
-    let (tt, st) = node_text_tops(sub.len());
-    text(o, c.font(e.style.face), &[title], l.text_x, r.center().y + tt, NODE_TITLE, true, c.m(e.style.text_color.unwrap_or(INK)), 0.0);
+    let (title, sub) = node_lines(e);
+    let (title, sub): (Vec<&str>, Vec<&str>) = (title.iter().map(|s| s.as_str()).collect(), sub.iter().map(|s| s.as_str()).collect());
+    let (tt, st) = node_text_tops(title.len(), sub.len());
+    text(o, c.font(e.style.face), &title, l.text_x, r.center().y + tt, NODE_TITLE, true, c.m(e.style.text_color.unwrap_or(INK)), 0.0);
     text(o, c.font(e.style.face), &sub, l.text_x, r.center().y + st, NODE_SUB, false, c.m(MUTED), 0.0);
     let pill = |o: &mut String, center: Pos2, label: &str, bg: Color32| {
         let w = est_w(label, 10.5) + 12.0;

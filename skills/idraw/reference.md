@@ -28,7 +28,7 @@ Elements are drawn in list order (later = on top), except boundaries (`region`) 
 
 ## Components (`node`)
 
-An icon tile + title + subtitle card. Set `icon`. Ids are prefixed by provider: `aws-`, `gcp-`, `az-`, `oss-` (open source), plus generic ones (e.g. `aws-lambda`, `gcp-bigquery`, `az-cosmos`, `oss-kafka`, `oss-postgres`, `oss-redis`, `user`, `mobile`, `browser`, `gateway`, `lb`, `cdn`, `queue`). If you leave out `title`, the icon's own name is used.
+An icon tile + title + subtitle card. Set `icon`. Ids are prefixed by provider: `aws-`, `gcp-`, `az-`, `oss-` (open source), plus generic ones (e.g. `aws-lambda`, `gcp-bigquery`, `az-cosmos`, `oss-kafka`, `oss-postgres`, `oss-redis`, `user`, `mobile`, `browser`, `gateway`, `lb`, `cdn`, `queue`). If you leave out `title`, the icon's own name is used. Long titles and subtitles wrap, and the card grows taller to fit; give `w` (e.g. 220) to keep it on fewer lines.
 
 Extra fields:
 

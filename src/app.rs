@@ -1822,7 +1822,8 @@ impl eframe::App for App {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
 
-        // keep text boxes sized to their content
+        // keep text boxes sized to their content, and cards tall enough for wrapped titles
+        self.doc.fit_nodes();
         let sketch = self.doc.sketch;
         for e in self.doc.elements.iter_mut().filter(|e| e.kind == Kind::Text) {
             e.rect.max = e.rect.min + render::measure(ctx, &e.text, e.style.font, e.style.face.resolve(sketch));
