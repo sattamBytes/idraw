@@ -4,22 +4,54 @@ A fast, modern, open-source diagramming app for macOS, written in Rust.
 It has Excalidraw's simplicity and draw.io's depth, and it's built first for **system design** diagrams.
 
 
-## Features (v0.1)
+## Features
 
-- Infinite canvas: trackpad pan, pinch or ⌘-scroll to zoom, dot grid
-- Shapes: rectangle, ellipse, diamond, text, freehand pen, dashed **group regions** (VPC, cluster, …)
-- **System-design components**: a searchable library of consistent icons (clients, network, compute, data, messaging, security, ops, AI). Click or drag to add.
-- **Smart connectors**: snap to shapes and stay attached, rounded elbow, straight or curved routes, label pills, arrowheads
-- **Quick-connect**: hover a shape, drag from a blue anchor, and drop on empty canvas to spawn a connected twin
+**Draw**
+- Infinite canvas: trackpad pan, pinch or ⌘-scroll to zoom, dot grid, alignment guides
+- Shapes, text, freehand pen, **sticky notes**, **comments**, dashed group regions
+- Labels go anywhere: a 3×3 position picker, inside or outside the shape, and they glide into place when moved
+- **Clean** or **sketch** (hand-drawn, hachure fills) style, in **light** or **dark** theme
+
+**System design**
+- 250+ components: generic infra, plus **AWS, Google Cloud, Azure, Cloudflare**, other clouds and open-source services, all drawn as consistent glyphs
+- **Boundary presets**: Cloud, On-prem data center, Region, AZ, VPC, public/private subnet, K8s cluster, DMZ, corporate network, edge, account
+- **Bring your own icons**: drop SVG packs (e.g. the official AWS/Azure/GCP sets, under their own licences) into `~/Library/Application Support/idraw/icons/<Category>/`
+- **Smart connectors** route around other shapes, snap to sides, and use elbow, straight or curved lines with label pills
+- **Quick-connect**: drag from a shape's blue anchor onto empty canvas and pick what to create
+- **Replicas** (×N stacked cards) and **capacity math** (QPS, payload, retention → bandwidth, storage, $/month)
+
+**Animate & tell the story**
 - **Flow animation** on connectors (packets or marching dashes)
-- **Export** PNG (2×), SVG, and **animated GIF** that loops the flow animation seamlessly
-- Smart alignment guides, undo/redo, copy/paste (JSON on the clipboard), duplicate, z-order
-- Autosaves your last canvas; `.idraw` files are plain JSON
+- **Traffic-weighted edges**: label a connector "1.2k rps" and it gets thicker and faster
+- **Scenarios**: record a request path by clicking components, add captions, then play it back with a travelling packet and pulses, or export it as a GIF
+- **Failure view** (F): mark components down; their connectors go dead and failover paths light up
+
+**Speed**
+- **⌘K command palette**: commands, components, and jump to any element
+- **/** inserts a component at the cursor
+- **Auto-layout** (⇧⌘L): animated layered layout that refits regions
+- **Diagram as code** (⌘/): a text pane with two-way sync. Paste **Mermaid** to convert it
+- **Import** (⌘I): docker-compose, Kubernetes YAML, Terraform, Mermaid
+
+**Share**
+- Export **PNG / SVG / animated GIF** at 1×, 2× or **4K** (3840px)
+- **Live collaboration**, peer-to-peer with no server: host on your network (or Tailscale) and share the address and code. Live cursors included
+- Autosaves your last canvas. `.idraw` files are plain JSON
+
+### Diagram-as-code syntax
+
+```text
+users   = user "Users" "web + mobile"      # key = icon "Title" "subtitle"
+api     = aws-apigw "API Gateway"
+orders  = aws-ecs "Orders service"
+users => api : HTTPS · 12k rps             # => packets, ~> dashes, --> dashed, <-> both, -> plain
+api -> orders, payments                    # fan-out; unknown keys become components
+```
 
 ## Run
 
 ```bash
-cargo run --release -- examples/system-design.idraw
+cargo run --release -- examples/hybrid-cloud.idraw
 ```
 
 ## Shortcuts
@@ -28,6 +60,10 @@ cargo run --release -- examples/system-design.idraw
 |---|---|---|---|
 | V / H | select / hand | ⌘Z / ⇧⌘Z | undo / redo |
 | R / O / D | rect / ellipse / diamond | ⌘D | duplicate |
+| S / C | sticky note / comment | ⌘K | command palette |
+| F | failure view | ⌘/ | diagram as code |
+| / | insert component at cursor | ⇧⌘L | auto-layout |
+| ⇧⌘D | dark mode | ⇧⌘K | sketch style |
 | A | connector | ⌘G | wrap selection in region |
 | T / P / G | text / pen / region | ⌘S / ⌘O | save / open |
 | L | toggle library | ⌘E / ⇧⌘E | export PNG / GIF |

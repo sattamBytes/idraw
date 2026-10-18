@@ -1,21 +1,43 @@
-use crate::export;
-use crate::icons::{self, CATEGORIES, ICONS, Icons};
+use crate::collab::Collab;
+use crate::export::{self, Look, Quality};
+use crate::icons::{self, Icons};
 use crate::model::*;
-use crate::render::{self, View};
-use eframe::egui::{
-    self, Align, Align2, Color32, Context, CornerRadius, Event, FontId, Frame, Id, Key, LayerId, Margin, Modifiers, Order, PointerButton, Pos2,
-    Rect, Response, RichText, Sense, Shadow, Stroke, StrokeKind, TextEdit, Ui, Vec2, pos2, vec2,
-};
+use crate::render::{self, Opts, View};
+use crate::{code, import, layout, theme};
+use eframe::egui::{self, Align2, Color32, Context, CornerRadius, Event, FontId, Frame, Id, Key, Modifiers, PointerButton, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Vec2, pos2, vec2};
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
 
-const INDIGO_50: Color32 = Color32::from_rgb(0xee, 0xf2, 0xff);
-const INDIGO_600: Color32 = Color32::from_rgb(0x4f, 0x46, 0xe5);
-const GRAY_100: Color32 = Color32::from_rgb(0xf3, 0xf4, 0xf6);
-const GRAY_700: Color32 = Color32::from_rgb(0x37, 0x41, 0x51);
-const CANVAS_BG: Color32 = Color32::from_rgb(0xfa, 0xfa, 0xfb);
-const GUIDE: Color32 = Color32::from_rgb(0xec, 0x48, 0x99);
-const UV: Rect = Rect { min: pos2(0., 0.), max: pos2(1., 1.) };
+mod ui;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Tool {
+    Select,
+    Hand,
+    Rect,
+    Ellipse,
+    Diamond,
+    Arrow,
+    Text,
+    Pen,
+    Region,
+    Sticky,
+    Comment,
+}
+
+pub(crate) const TOOLS: [(Tool, &str, &str, Key); 11] = [
+    (Tool::Select, "t-select", "Select  V", Key::V),
+    (Tool::Hand, "t-hand", "Hand  H", Key::H),
+    (Tool::Rect, "t-rect", "Rectangle  R", Key::R),
+    (Tool::Ellipse, "t-ellipse", "Ellipse  O", Key::O),
+    (Tool::Diamond, "t-diamond", "Diamond  D", Key::D),
+    (Tool::Arrow, "t-arrow", "Connector  A", Key::A),
+    (Tool::Text, "t-text", "Text  T", Key::T),
+    (Tool::Pen, "t-pen", "Draw  P", Key::P),
+    (Tool::Region, "t-region", "Group region  G", Key::G),
+    (Tool::Sticky, "t-sticky", "Sticky note  S", Key::S),
+    (Tool::Comment, "t-comment", "Comment  C", Key::C),
+];
 
 const STROKES: [Color32; 8] = [
     INK,
@@ -38,29 +60,34 @@ const FILLS: [Color32; 8] = [
     Color32::from_rgb(0xf1, 0xf5, 0xf9),
 ];
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Tool {
-    Select,
-    Hand,
-    Rect,
-    Ellipse,
-    Diamond,
-    Arrow,
-    Text,
-    Pen,
-    Region,
-}
-
-const TOOLS: [(Tool, &str, &str, Key); 9] = [
-    (Tool::Select, "t-select", "Select  V", Key::V),
-    (Tool::Hand, "t-hand", "Hand  H", Key::H),
-    (Tool::Rect, "t-rect", "Rectangle  R", Key::R),
-    (Tool::Ellipse, "t-ellipse", "Ellipse  O", Key::O),
-    (Tool::Diamond, "t-diamond", "Diamond  D", Key::D),
-    (Tool::Arrow, "t-arrow", "Connector  A", Key::A),
-    (Tool::Text, "t-text", "Text  T", Key::T),
-    (Tool::Pen, "t-pen", "Draw  P", Key::P),
-    (Tool::Region, "t-region", "Group region  G", Key::G),
+/// (label, shortcut, action) for the command palette.
+pub(crate) const COMMANDS: &[(&str, &str, &str)] = &[
+    ("Auto-layout: left → right", "⇧⌘L", "layout"),
+    ("Auto-layout: top → down", "", "layout-v"),
+    ("Diagram as code", "⌘/", "code"),
+    ("Record a request scenario", "", "record"),
+    ("Scenarios…", "", "scenarios"),
+    ("Toggle failure view", "F", "failures"),
+    ("Toggle dark mode", "⇧⌘D", "dark"),
+    ("Toggle sketch (hand-drawn) style", "⇧⌘K", "sketch"),
+    ("Insert component at cursor", "/", "picker"),
+    ("Import compose / Kubernetes / Terraform / Mermaid…", "⌘I", "import"),
+    ("Export PNG", "⌘E", "png"),
+    ("Export SVG", "", "svg"),
+    ("Export animated GIF", "⇧⌘E", "gif"),
+    ("Collaborate live…", "", "collab"),
+    ("Open icon packs folder", "", "icons-folder"),
+    ("Save", "⌘S", "save"),
+    ("Save as…", "⇧⌘S", "saveas"),
+    ("Open…", "⌘O", "open"),
+    ("New canvas", "", "new"),
+    ("Undo", "⌘Z", "undo"),
+    ("Redo", "⇧⌘Z", "redo"),
+    ("Zoom to fit", "⇧1", "fit"),
+    ("Select all", "⌘A", "all"),
+    ("Duplicate", "⌘D", "dup"),
+    ("Wrap selection in region", "⌘G", "group"),
+    ("Toggle components library", "L", "lib"),
 ];
 
 enum Drag {
@@ -72,6 +99,22 @@ enum Drag {
     Create { id: u64, start: Pos2 },
     ArrowEnd { id: u64, to: bool, source: Option<u64> },
     Pen(u64),
+}
+
+/// Quick component chooser: `/` at the cursor, or after dropping a connector on empty canvas.
+pub(crate) struct Picker {
+    world: Pos2,
+    screen: Pos2,
+    query: String,
+    sel: usize,
+    connect: Option<(u64, u64)>,
+    focus: bool,
+}
+
+pub(crate) struct Palette {
+    query: String,
+    sel: usize,
+    focus: bool,
 }
 
 pub struct App {
@@ -90,6 +133,7 @@ pub struct App {
     library: bool,
     replace_icon: bool,
     lib_query: String,
+    lib_filter: Option<&'static str>,
     lib_drag: Option<&'static str>,
     playing: bool,
     path: Option<PathBuf>,
@@ -105,12 +149,33 @@ pub struct App {
     fit_pending: bool,
     cascade: f32,
     nudge: Option<Vec2>,
+    // v0.2
+    dark: bool,
+    failures: bool,
+    quality: Quality,
+    palette: Option<Palette>,
+    picker: Option<Picker>,
+    scn_panel: bool,
+    scn_play: Option<(usize, f64)>,
+    rec: Option<(String, Vec<u64>)>,
+    code_open: bool,
+    code_text: String,
+    code_err: Option<String>,
+    code_w: f32,
+    anim: Option<(Vec<(u64, Rect, Rect)>, f64)>,
+    collab: Option<Collab>,
+    collab_panel: bool,
+    join_addr: String,
+    join_code: String,
+    my_name: String,
 }
 
 impl App {
     pub fn new(cc: &eframe::CreationContext) -> Self {
         crate::setup_fonts(&cc.egui_ctx);
-        setup_style(&cc.egui_ctx);
+        let st = cc.storage;
+        let dark = st.and_then(|s| s.get_string("dark")).map(|v| v == "1").unwrap_or_else(|| cc.egui_ctx.system_theme() == Some(egui::Theme::Dark));
+        setup_style(&cc.egui_ctx, dark);
         let mut path = None;
         let doc = match std::env::args().nth(1).map(PathBuf::from) {
             Some(p) => {
@@ -118,8 +183,9 @@ impl App {
                 path = Some(p);
                 d
             }
-            None => cc.storage.and_then(|s| s.get_string("doc")).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
+            None => st.and_then(|s| s.get_string("doc")).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
         };
+        let my_name = st.and_then(|s| s.get_string("name")).unwrap_or_else(|| std::env::var("USER").unwrap_or("me".into()));
         App {
             fit_pending: !doc.elements.is_empty(),
             doc,
@@ -127,7 +193,7 @@ impl App {
             redo: vec![],
             sel: vec![],
             tool: Tool::Select,
-            offset: vec2(0.0, 0.0),
+            offset: Vec2::ZERO,
             zoom: 1.0,
             canvas: Rect::ZERO,
             drag: Drag::None,
@@ -137,6 +203,7 @@ impl App {
             library: true,
             replace_icon: false,
             lib_query: String::new(),
+            lib_filter: None,
             lib_drag: None,
             playing: true,
             path,
@@ -151,6 +218,24 @@ impl App {
             drop_target: None,
             cascade: 0.0,
             nudge: None,
+            dark,
+            failures: false,
+            quality: Quality::UltraHd,
+            palette: None,
+            picker: None,
+            scn_panel: false,
+            scn_play: None,
+            rec: None,
+            code_open: false,
+            code_text: String::new(),
+            code_err: None,
+            code_w: 0.0,
+            anim: None,
+            collab: None,
+            collab_panel: false,
+            join_addr: String::new(),
+            join_code: String::new(),
+            my_name,
         }
     }
 
@@ -183,7 +268,7 @@ impl App {
     }
 
     fn toast(&mut self, ctx: &Context, msg: impl Into<String>) {
-        self.toast = Some((msg.into(), ctx.input(|i| i.time) + 2.5));
+        self.toast = Some((msg.into(), ctx.input(|i| i.time) + 2.8));
     }
 
     fn zoom_at(&mut self, screen: Pos2, factor: f32) {
@@ -199,9 +284,13 @@ impl App {
             return;
         };
         // keep clear of the floating panels
-        let c = Rect::from_min_max(self.canvas.min + vec2(if self.sel.is_empty() { 40.0 } else { 250.0 }, 70.0), self.canvas.max - vec2(if self.library { 310.0 } else { 40.0 }, 70.0));
+        let c = Rect::from_min_max(self.canvas.min + vec2(if self.sel.is_empty() { 40.0 } else { 260.0 }, 70.0), self.canvas.max - vec2(if self.library { 330.0 } else { 40.0 }, 70.0));
         self.zoom = ((c.width() - 40.0) / b.width()).min((c.height() - 40.0) / b.height()).clamp(0.2, 1.5);
         self.offset = c.center() - self.canvas.min - b.center().to_vec2() * self.zoom;
+    }
+
+    fn center_on(&mut self, w: Pos2) {
+        self.offset = self.canvas.size() / 2.0 - w.to_vec2() * self.zoom;
     }
 
     fn view_center(&self) -> Pos2 {
@@ -225,7 +314,7 @@ impl App {
 
     fn finish_edit(&mut self) {
         if let Some(id) = self.editing.take() {
-            if self.doc.get(id).is_some_and(|e| e.kind == Kind::Text && e.text.trim().is_empty()) {
+            if self.doc.get(id).is_some_and(|e| matches!(e.kind, Kind::Text | Kind::Comment) && e.text.trim().is_empty()) {
                 self.doc.remove(&[id]);
                 self.sel.retain(|s| *s != id);
             }
@@ -248,16 +337,12 @@ impl App {
                 end.id = map.iter().find(|m| m.0 == id).map(|m| m.1);
             }
         };
-        let mut ids = vec![];
         for e in &mut els {
             remap(&mut e.from);
             remap(&mut e.to);
             e.translate(d);
         }
-        for e in els {
-            ids.push(self.doc.add(e));
-        }
-        ids
+        els.into_iter().map(|e| self.doc.add(e)).collect()
     }
 
     /// Selected elements with arrow endpoints resolved to absolute positions.
@@ -292,48 +377,196 @@ impl App {
             let b = render_bounds(&els);
             let d = self.view_center() - b.center();
             self.sel = self.insert_clones(els, d);
+        } else if let Some(c) = code::from_mermaid(s) {
+            self.merge_doc(ctx, import::to_doc(&c, "paste.mmd"));
         } else if !s.trim().is_empty() {
             let mut e = Element::new(Kind::Text, Rect::from_min_size(self.view_center(), Vec2::ZERO));
             e.text = s.trim().to_string();
-            e.rect.max = e.rect.min + render::measure(ctx, &e.text, e.style.font);
+            e.rect.max = e.rect.min + render::measure(ctx, &e.text, e.style.font, self.doc.sketch);
             self.add_select(e);
+        }
+    }
+
+    /// Drops an imported doc next to the existing content and selects it.
+    fn merge_doc(&mut self, ctx: &Context, d: Result<Doc, String>) {
+        match d {
+            Ok(d) if !d.elements.is_empty() => {
+                let b = d.all_bounds().unwrap_or(Rect::ZERO);
+                let target = match self.doc.all_bounds() {
+                    Some(cur) => pos2(cur.max.x + 160.0 + b.width() / 2.0, cur.center().y),
+                    None => pos2(0.0, 0.0),
+                };
+                self.sel = self.insert_clones(d.elements, target - b.center());
+                self.fit();
+                self.toast(ctx, format!("Imported {} elements", self.sel.len()));
+            }
+            Ok(_) => self.toast(ctx, "Nothing to import"),
+            Err(e) => self.toast(ctx, format!("Import failed: {e}")),
         }
     }
 
     fn group_region(&mut self) {
         let Some(b) = self.doc.bounds_of(&self.sel) else { return };
         self.checkpoint();
-        let mut r = Element::new(Kind::Region, Rect::from_min_max(b.min - vec2(28.0, 48.0), b.max + vec2(28.0, 28.0)));
+        let mut r = Element::new(Kind::Region, Rect::from_min_max(b.min - vec2(32.0, 52.0), b.max + vec2(32.0, 32.0)));
         r.text = "Group".into();
         let id = self.add_select(r);
         self.start_edit(id);
         self.undo.pop(); // start_edit's checkpoint duplicates ours
     }
 
-    fn insert_node(&mut self, icon: &str, at: Option<Pos2>) {
+    /// Adds a component (or boundary preset) at `at` or the view center.
+    fn insert_icon(&mut self, icon: &str, at: Option<Pos2>) -> u64 {
         self.checkpoint();
         let at = at.unwrap_or_else(|| {
             self.cascade = (self.cascade + 24.0) % 168.0;
             self.view_center() + vec2(self.cascade, self.cascade)
         });
-        self.add_select(Element::node(icon, at));
         self.tool = Tool::Select;
+        if let Some(b) = icons::BOUNDARIES.iter().find(|b| b.0 == icon) {
+            let mut e = Element::new(Kind::Region, Rect::from_center_size(at, vec2(440.0, 300.0)));
+            let c = icons::boundary_color(b.3);
+            e.text = b.1.into();
+            e.icon = b.2.into();
+            e.style.stroke = c;
+            e.style.fill = c.gamma_multiply(if b.4 { 0.05 } else { 0.08 });
+            e.style.dashed = b.4;
+            return self.add_select(e);
+        }
+        self.add_select(Element::node(icon, at))
     }
 
     fn set_icon(&mut self, icon: &str) {
+        let Some(i) = icons::find(icon) else { return };
+        if icon.starts_with("b-") {
+            return;
+        }
         self.checkpoint();
-        let Some((_, label, cat, _)) = icons::find(icon) else { return };
         for id in self.sel.clone() {
             if let Some(e) = self.doc.get_mut(id).filter(|e| e.kind == Kind::Node) {
-                let old_default = icons::find(&e.icon).map(|i| i.1);
-                if old_default == Some(node_text(&e.text).0) {
-                    e.text = e.text.replacen(node_text(&e.text).0, label, 1);
+                let old = icons::find(&e.icon).map(|o| o.label);
+                if old == Some(node_text(&e.text).0) {
+                    e.text = if i.sub.is_empty() { i.label.to_string() } else { format!("{}\n{}", i.label, i.sub) };
                 }
                 e.icon = icon.to_string();
-                e.style.stroke = icons::accent(cat);
+                e.style.stroke = icons::accent(i.cat);
             }
         }
         self.replace_icon = false;
+    }
+
+    fn set_dark(&mut self, ctx: &Context, d: bool) {
+        self.dark = d;
+        setup_style(ctx, d);
+    }
+
+    fn auto_layout(&mut self, vertical: bool) {
+        let scope = if self.sel.len() > 1 { self.sel.clone() } else { vec![] };
+        let targets = layout::layered(&self.doc, &scope, vertical);
+        if targets.is_empty() {
+            return;
+        }
+        self.checkpoint();
+        let items = targets.into_iter().filter_map(|(id, r)| self.doc.get(id).map(|e| (id, e.rect, r))).collect();
+        self.anim = Some((items, 0.0));
+    }
+
+    fn start_record(&mut self) {
+        let n = self.doc.scenarios.len() + 1;
+        self.rec = Some((format!("Scenario {n}"), vec![]));
+        self.scn_play = None;
+        self.sel.clear();
+        self.tool = Tool::Select;
+    }
+
+    fn finish_record(&mut self, ctx: &Context) {
+        let Some((name, nodes)) = self.rec.take() else { return };
+        if nodes.len() < 2 {
+            return self.toast(ctx, "Scenario needs at least two components");
+        }
+        self.checkpoint();
+        let steps = nodes.windows(2).map(|w| Step { from: w[0], to: w[1], caption: String::new() }).collect();
+        self.doc.scenarios.push(Scenario { name, steps });
+        self.scn_panel = true;
+        self.scn_play = Some((self.doc.scenarios.len() - 1, ctx.input(|i| i.time)));
+    }
+
+    fn open_picker(&mut self, screen: Pos2, connect: Option<(u64, u64)>) {
+        self.picker = Some(Picker { world: self.view().s2w(screen), screen, query: String::new(), sel: 0, connect, focus: true });
+    }
+
+    // ---------- actions ----------
+
+    fn run(&mut self, ctx: &Context, a: &str) {
+        match a {
+            "undo" => self.undo(),
+            "redo" => self.redo(),
+            "save" => self.save(ctx, false),
+            "saveas" => self.save(ctx, true),
+            "open" => self.open(ctx),
+            "import" => self.import(ctx),
+            "png" => self.export(ctx, "png", None),
+            "svg" => self.export(ctx, "svg", None),
+            "gif" => self.export(ctx, "gif", None),
+            "layout" => self.auto_layout(false),
+            "layout-v" => self.auto_layout(true),
+            "dark" => self.set_dark(ctx, !self.dark),
+            "sketch" => {
+                self.checkpoint();
+                self.doc.sketch = !self.doc.sketch;
+            }
+            "failures" => self.failures = !self.failures,
+            "code" => self.code_open = !self.code_open,
+            "record" => self.start_record(),
+            "scenarios" => self.scn_panel = !self.scn_panel,
+            "collab" => self.collab_panel = !self.collab_panel,
+            "picker" => {
+                let p = ctx.input(|i| i.pointer.hover_pos()).filter(|p| self.canvas.contains(*p)).unwrap_or(self.canvas.center());
+                self.open_picker(p, None);
+            }
+            "icons-folder" => {
+                let d = icons::custom_dir();
+                let _ = std::fs::create_dir_all(&d);
+                let _ = std::process::Command::new("open").arg(&d).spawn();
+                self.toast(ctx, "Drop SVG packs here (one folder per category), then restart idraw");
+            }
+            "new" => {
+                self.checkpoint();
+                self.doc = Doc::default();
+                self.sel.clear();
+                self.path = None;
+            }
+            "fit" => self.fit(),
+            "all" => self.sel = self.doc.elements.iter().map(|e| e.id).collect(),
+            "dup" => self.duplicate(),
+            "group" => self.group_region(),
+            "lib" => self.library = !self.library,
+            "zin" => self.zoom_at(self.canvas.center(), 1.2),
+            "zout" => self.zoom_at(self.canvas.center(), 1.0 / 1.2),
+            "z100" => self.zoom_at(self.canvas.center(), 1.0 / self.zoom),
+            "del" => self.delete_selected(),
+            "palette" => self.palette = Some(Palette { query: String::new(), sel: 0, focus: true }),
+            "esc" => {
+                if self.rec.take().is_some() || self.scn_play.take().is_some() || self.picker.take().is_some() {
+                    return;
+                }
+                self.sel.clear();
+                self.tool = Tool::Select;
+                self.menu = false;
+                self.export_menu = false;
+                self.replace_icon = false;
+            }
+            _ => {
+                if let Some(id) = a.strip_prefix("insert:") {
+                    self.insert_icon(id, None);
+                } else if let Some(id) = a.strip_prefix("goto:").and_then(|s| s.parse::<u64>().ok()) {
+                    if let Some(c) = self.doc.get(id).map(|e| self.doc.bounds(e).center()) {
+                        self.sel = vec![id];
+                        self.center_on(c);
+                    }
+                }
+            }
+        }
     }
 
     // ---------- files ----------
@@ -369,22 +602,45 @@ impl App {
         }
     }
 
-    fn export(&mut self, ctx: &Context, fmt: &'static str) {
+    fn import(&mut self, ctx: &Context) {
+        let Some(p) = rfd::FileDialog::new()
+            .add_filter("Infrastructure & diagrams", &["yml", "yaml", "tf", "mmd", "mermaid", "md", "txt"])
+            .set_title("Import docker-compose, Kubernetes, Terraform or Mermaid")
+            .pick_file()
+        else {
+            return;
+        };
+        let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let res = std::fs::read_to_string(&p).map_err(|e| e.to_string()).and_then(|s| import::to_doc(&s, &name));
+        if res.is_ok() {
+            self.checkpoint();
+        }
+        self.merge_doc(ctx, res);
+    }
+
+    /// `scenario`: export that scenario as an animated GIF instead.
+    fn export(&mut self, ctx: &Context, fmt: &'static str, scenario: Option<usize>) {
         self.export_menu = false;
         if self.doc.elements.is_empty() {
             return self.toast(ctx, "Nothing to export");
         }
         let stem = self.path.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().to_string()).unwrap_or("diagram".into());
+        let stem = match scenario.and_then(|i| self.doc.scenarios.get(i)) {
+            Some(s) => format!("{stem}-{}", code::slug(&s.name)),
+            None => stem,
+        };
         let Some(p) = rfd::FileDialog::new().add_filter(fmt, &[fmt]).set_file_name(format!("{stem}.{fmt}")).save_file() else { return };
-        let (doc, only, ctx2) = (self.doc.clone(), self.sel.clone(), ctx.clone());
+        let (doc, only, q, look) = (self.doc.clone(), self.sel.clone(), self.quality, Look { dark: self.dark, failures: self.failures });
+        let ctx2 = ctx.clone();
         let (tx, rx) = channel();
         self.export_rx = Some(rx);
         self.toast = Some((format!("Exporting {}…", fmt.to_uppercase()), f64::MAX));
         std::thread::spawn(move || {
-            let r = match fmt {
-                "png" => export::write_png(&doc, &only, &p),
-                "svg" => export::write_svg(&doc, &only, &p),
-                _ => export::write_gif(&doc, &only, &p),
+            let r = match (fmt, scenario) {
+                (_, Some(i)) => export::write_scenario_gif(&doc, &doc.scenarios[i], q, look, &p),
+                ("png", _) => export::write_png(&doc, &only, q, look, &p),
+                ("svg", _) => export::write_svg(&doc, &only, look, &p),
+                _ => export::write_gif(&doc, &only, q, look, &p),
             };
             let _ = tx.send(r.map(|_| p.display().to_string()));
             ctx2.request_repaint();
@@ -394,22 +650,33 @@ impl App {
     // ---------- input ----------
 
     fn shortcuts(&mut self, ctx: &Context) {
-        if ctx.wants_keyboard_input() {
-            return;
-        }
+        let mut act: Vec<&str> = vec![];
+        let typing = ctx.wants_keyboard_input();
         let cmd = Modifiers::COMMAND;
         let shift_cmd = Modifiers::COMMAND | Modifiers::SHIFT;
-        let mut act: Vec<&str> = vec![];
         ctx.input_mut(|i| {
+            if i.consume_key(cmd, Key::K) {
+                act.push("palette");
+            }
+            if i.consume_key(cmd, Key::Slash) {
+                act.push("code");
+            }
+            if typing {
+                return;
+            }
             for (k, m, name) in [
                 (Key::Z, shift_cmd, "redo"),
                 (Key::Z, cmd, "undo"),
                 (Key::S, shift_cmd, "saveas"),
                 (Key::S, cmd, "save"),
                 (Key::O, cmd, "open"),
+                (Key::I, cmd, "import"),
                 (Key::A, cmd, "all"),
+                (Key::D, shift_cmd, "dark"),
                 (Key::D, cmd, "dup"),
                 (Key::G, cmd, "group"),
+                (Key::L, shift_cmd, "layout"),
+                (Key::K, shift_cmd, "sketch"),
                 (Key::E, shift_cmd, "gif"),
                 (Key::E, cmd, "png"),
                 (Key::Equals, cmd, "zin"),
@@ -431,8 +698,7 @@ impl App {
                 }
                 for (k, d) in [(Key::ArrowLeft, vec2(-1., 0.)), (Key::ArrowRight, vec2(1., 0.)), (Key::ArrowUp, vec2(0., -1.)), (Key::ArrowDown, vec2(0., 1.))] {
                     if i.key_pressed(k) {
-                        let d = d * if i.modifiers.shift { 10.0 } else { 1.0 };
-                        self.nudge = Some(d);
+                        self.nudge = Some(d * if i.modifiers.shift { 10.0 } else { 1.0 });
                     }
                 }
             }
@@ -448,6 +714,15 @@ impl App {
                 if i.key_pressed(Key::L) || i.key_pressed(Key::N) {
                     act.push("lib");
                 }
+                if i.key_pressed(Key::F) {
+                    act.push("failures");
+                }
+                if i.key_pressed(Key::Slash) {
+                    act.push("picker");
+                }
+                if i.key_pressed(Key::Enter) && self.rec.is_some() {
+                    act.push("rec-done");
+                }
             }
         });
         if let Some(d) = self.nudge.take() {
@@ -461,32 +736,14 @@ impl App {
             }
         }
         for a in act {
-            match a {
-                "redo" => self.redo(),
-                "undo" => self.undo(),
-                "saveas" => self.save(ctx, true),
-                "save" => self.save(ctx, false),
-                "open" => self.open(ctx),
-                "all" => self.sel = self.doc.elements.iter().map(|e| e.id).collect(),
-                "dup" => self.duplicate(),
-                "group" => self.group_region(),
-                "gif" => self.export(ctx, "gif"),
-                "png" => self.export(ctx, "png"),
-                "zin" => self.zoom_at(self.canvas.center(), 1.2),
-                "zout" => self.zoom_at(self.canvas.center(), 1.0 / 1.2),
-                "z100" => self.zoom_at(self.canvas.center(), 1.0 / self.zoom),
-                "fit" => self.fit(),
-                "del" => self.delete_selected(),
-                "esc" => {
-                    self.sel.clear();
-                    self.tool = Tool::Select;
-                    self.menu = false;
-                    self.export_menu = false;
-                    self.replace_icon = false;
-                }
-                "lib" => self.library = !self.library,
-                _ => {}
+            if a == "rec-done" {
+                self.finish_record(ctx);
+            } else {
+                self.run(ctx, a);
             }
+        }
+        if typing {
+            return;
         }
         for ev in ctx.input(|i| i.events.clone()) {
             match ev {
@@ -509,7 +766,7 @@ impl App {
 
     fn single_box(&self) -> Option<&Element> {
         match self.sel.as_slice() {
-            [id] => self.doc.get(*id).filter(|e| e.kind != Kind::Arrow),
+            [id] => self.doc.get(*id).filter(|e| !matches!(e.kind, Kind::Arrow | Kind::Comment)),
             _ => None,
         }
     }
@@ -526,7 +783,6 @@ impl App {
 
     fn begin_select_drag(&mut self, sp: Pos2, w: Pos2, shift: bool) {
         let v = self.view();
-        // resize handles
         if let Some(e) = self.single_box() {
             if let Some(h) = Self::handles(v.rect(e.rect)).iter().position(|h| h.distance(sp) < 8.0) {
                 let orig = e.clone();
@@ -535,7 +791,6 @@ impl App {
                 return;
             }
         }
-        // arrow endpoint handles
         if let [id] = self.sel.as_slice() {
             if let Some(e) = self.doc.get(*id).filter(|e| e.kind == Kind::Arrow) {
                 let p = self.doc.arrow_path(e);
@@ -548,7 +803,6 @@ impl App {
                 }
             }
         }
-        // connection anchors -> new connector
         if let Some(src) = self.hover_shape {
             if self.anchors(src).iter().any(|(a, _)| a.distance(sp) < 9.0) {
                 self.checkpoint();
@@ -582,7 +836,7 @@ impl App {
         let thr = 6.0 / self.zoom;
         let m = moving.translate(delta);
         let (mut bx, mut by): (Option<(f32, f32)>, Option<(f32, f32)>) = (None, None);
-        for e in self.doc.elements.iter().filter(|e| !exclude.contains(&e.id) && e.kind != Kind::Arrow) {
+        for e in self.doc.elements.iter().filter(|e| !exclude.contains(&e.id) && !matches!(e.kind, Kind::Arrow | Kind::Comment)) {
             let b = self.doc.bounds(e);
             for cx in [b.min.x, b.center().x, b.max.x] {
                 for mx in [m.min.x, m.center().x, m.max.x] {
@@ -611,6 +865,31 @@ impl App {
         delta + vec2(bx.map_or(0.0, |b| b.0), by.map_or(0.0, |b| b.0))
     }
 
+    fn new_shape(&self, tool: Tool, r: Rect) -> Element {
+        let kind = match tool {
+            Tool::Rect => Kind::Rect,
+            Tool::Ellipse => Kind::Ellipse,
+            Tool::Diamond => Kind::Diamond,
+            Tool::Sticky => Kind::Sticky,
+            _ => Kind::Region,
+        };
+        let mut e = Element::new(kind, r);
+        if kind == Kind::Region {
+            e.text = "Region".into();
+        }
+        e
+    }
+
+    fn default_size(tool: Tool) -> Vec2 {
+        match tool {
+            Tool::Rect => vec2(140.0, 80.0),
+            Tool::Ellipse => vec2(120.0, 80.0),
+            Tool::Diamond => vec2(120.0, 90.0),
+            Tool::Sticky => vec2(200.0, 160.0),
+            _ => vec2(420.0, 280.0),
+        }
+    }
+
     fn canvas_input(&mut self, ctx: &Context, resp: &Response) {
         let v = self.view();
         let (mods, space, scroll, zd, hover) = ctx.input(|i| (i.modifiers, i.key_down(Key::Space), i.smooth_scroll_delta, i.zoom_delta(), i.pointer.hover_pos()));
@@ -623,8 +902,8 @@ impl App {
                 }
             }
         }
-        // hover shape for connection anchors (sticky while near it)
-        if matches!(self.drag, Drag::None) && self.tool == Tool::Select {
+        let presenting = self.scn_play.is_some();
+        if matches!(self.drag, Drag::None) && self.tool == Tool::Select && !presenting && self.rec.is_none() {
             if let Some(p) = resp.hover_pos() {
                 let w = v.s2w(p);
                 let near = self.hover_shape.and_then(|id| self.doc.get(id)).is_some_and(|e| e.rect.expand(28.0 / self.zoom).contains(w));
@@ -641,6 +920,29 @@ impl App {
         if resp.drag_started() || resp.clicked() {
             self.menu = false;
             self.export_menu = false;
+            self.picker = None;
+        }
+
+        // recording a scenario: clicks pick components in order
+        if let Some((_, nodes)) = &mut self.rec {
+            if resp.clicked() {
+                let w = v.s2w(resp.interact_pointer_pos().unwrap_or_default());
+                if let Some(id) = self.doc.hit_bindable(w, None) {
+                    if nodes.last() != Some(&id) {
+                        nodes.push(id);
+                    }
+                }
+            }
+            if resp.dragged() {
+                self.offset += resp.drag_delta();
+            }
+            return;
+        }
+        if presenting {
+            if resp.dragged() {
+                self.offset += resp.drag_delta();
+            }
+            return;
         }
 
         if resp.drag_started_by(PointerButton::Middle) || (resp.drag_started_by(PointerButton::Primary) && (space || self.tool == Tool::Hand)) {
@@ -651,18 +953,9 @@ impl App {
             self.finish_edit();
             match self.tool {
                 Tool::Select => self.begin_select_drag(sp, w, mods.shift),
-                Tool::Rect | Tool::Ellipse | Tool::Diamond | Tool::Region => {
+                Tool::Rect | Tool::Ellipse | Tool::Diamond | Tool::Region | Tool::Sticky => {
                     self.checkpoint();
-                    let kind = match self.tool {
-                        Tool::Rect => Kind::Rect,
-                        Tool::Ellipse => Kind::Ellipse,
-                        Tool::Diamond => Kind::Diamond,
-                        _ => Kind::Region,
-                    };
-                    let mut e = Element::new(kind, Rect::from_min_size(w, Vec2::ZERO));
-                    if kind == Kind::Region {
-                        e.text = "Region".into();
-                    }
+                    let e = self.new_shape(self.tool, Rect::from_min_size(w, Vec2::ZERO));
                     let id = self.add_select(e);
                     self.drag = Drag::Create { id, start: w };
                 }
@@ -681,7 +974,7 @@ impl App {
                     let id = self.doc.add(e);
                     self.drag = Drag::Pen(id);
                 }
-                Tool::Text | Tool::Hand => {}
+                Tool::Text | Tool::Hand | Tool::Comment => {}
             }
         }
 
@@ -772,7 +1065,8 @@ impl App {
         }
 
         if resp.drag_stopped() {
-            let w = v.s2w(resp.interact_pointer_pos().or(hover).unwrap_or_default());
+            let sp = resp.interact_pointer_pos().or(hover).unwrap_or_default();
+            let w = v.s2w(sp);
             match std::mem::replace(&mut self.drag, Drag::None) {
                 Drag::Marquee(start) => {
                     let r = Rect::from_two_pos(start, w);
@@ -786,12 +1080,17 @@ impl App {
                     self.undo.pop();
                 }
                 Drag::Create { id, start } => {
+                    let tool = self.tool;
                     if let Some(e) = self.doc.get_mut(id) {
                         if e.rect.width() < 6.0 && e.rect.height() < 6.0 {
-                            e.rect = Rect::from_center_size(start, if e.kind == Kind::Region { vec2(360.0, 240.0) } else { vec2(140.0, 80.0) });
+                            e.rect = Rect::from_center_size(start, Self::default_size(tool));
                         }
                     }
                     self.tool = Tool::Select;
+                    if tool == Tool::Sticky {
+                        self.editing = Some(id);
+                        self.edit_focus = true;
+                    }
                 }
                 Drag::ArrowEnd { id, to, source } => {
                     self.drop_target = None;
@@ -802,15 +1101,8 @@ impl App {
                         self.undo.pop();
                         self.sel.clear();
                     } else if let (Some(src), true) = (source, free) {
-                        // Quick-connect: dropping on empty canvas spawns a twin of the source.
-                        if let Some(mut twin) = self.doc.get(src).cloned() {
-                            twin.rect = Rect::from_center_size(w, twin.rect.size());
-                            let t = self.doc.add(twin);
-                            if let Some(e) = self.doc.get_mut(id) {
-                                e.to.id = Some(t);
-                            }
-                            self.sel = vec![t];
-                        }
+                        // Dropped on empty canvas: ask what to connect to.
+                        self.open_picker(sp, Some((id, src)));
                     }
                     self.tool = Tool::Select;
                 }
@@ -826,37 +1118,38 @@ impl App {
                 return;
             }
             match self.tool {
-                Tool::Select | Tool::Hand | Tool::Arrow | Tool::Pen => {
-                    match self.doc.hit(w, 6.0 / self.zoom) {
-                        Some(id) if mods.shift => {
-                            if let Some(i) = self.sel.iter().position(|s| *s == id) {
-                                self.sel.remove(i);
-                            } else {
-                                self.sel.push(id);
-                            }
+                Tool::Select | Tool::Hand | Tool::Arrow | Tool::Pen => match self.doc.hit(w, 6.0 / self.zoom) {
+                    Some(id) if mods.shift => {
+                        if let Some(i) = self.sel.iter().position(|s| *s == id) {
+                            self.sel.remove(i);
+                        } else {
+                            self.sel.push(id);
                         }
-                        Some(id) => self.sel = vec![id],
-                        None if !mods.shift => self.sel.clear(),
-                        None => {}
                     }
-                }
-                Tool::Rect | Tool::Ellipse | Tool::Diamond | Tool::Region => {
+                    Some(id) => self.sel = vec![id],
+                    None if !mods.shift => self.sel.clear(),
+                    None => {}
+                },
+                Tool::Rect | Tool::Ellipse | Tool::Diamond | Tool::Region | Tool::Sticky => {
                     self.checkpoint();
-                    let (kind, size) = match self.tool {
-                        Tool::Rect => (Kind::Rect, vec2(140.0, 80.0)),
-                        Tool::Ellipse => (Kind::Ellipse, vec2(120.0, 80.0)),
-                        Tool::Diamond => (Kind::Diamond, vec2(120.0, 90.0)),
-                        _ => (Kind::Region, vec2(360.0, 240.0)),
-                    };
-                    let mut e = Element::new(kind, Rect::from_center_size(w, size));
-                    if kind == Kind::Region {
-                        e.text = "Region".into();
-                    }
-                    self.add_select(e);
+                    let tool = self.tool;
+                    let e = self.new_shape(tool, Rect::from_center_size(w, Self::default_size(tool)));
+                    let id = self.add_select(e);
                     self.tool = Tool::Select;
+                    if tool == Tool::Sticky {
+                        self.editing = Some(id);
+                        self.edit_focus = true;
+                    }
                 }
                 Tool::Text => {
                     self.create_text(w);
+                    self.tool = Tool::Select;
+                }
+                Tool::Comment => {
+                    self.checkpoint();
+                    let id = self.add_select(Element::new(Kind::Comment, Rect::from_min_size(w, Vec2::ZERO)));
+                    self.editing = Some(id);
+                    self.edit_focus = true;
                     self.tool = Tool::Select;
                 }
             }
@@ -870,12 +1163,11 @@ impl App {
             }
         }
 
-        // library drag & drop
         if let Some(icon) = self.lib_drag {
             if ctx.input(|i| i.pointer.any_released()) {
                 self.lib_drag = None;
                 if let Some(p) = hover.filter(|p| self.canvas.contains(*p) && !ctx.is_pointer_over_area()) {
-                    self.insert_node(icon, Some(v.s2w(p)));
+                    self.insert_icon(icon, Some(v.s2w(p)));
                 }
             }
         }
@@ -889,452 +1181,120 @@ impl App {
         self.edit_focus = true;
     }
 
+    fn step_anim(&mut self, now: f64) {
+        let Some((items, start)) = &mut self.anim else { return };
+        if *start == 0.0 {
+            *start = now;
+        }
+        let t = ((now - *start) / 0.5) as f32;
+        let k = ease(t);
+        let items = items.clone();
+        for (id, a, b) in &items {
+            if let Some(e) = self.doc.get_mut(*id) {
+                e.rect = Rect::from_min_max(a.min.lerp(b.min, k), a.max.lerp(b.max, k));
+            }
+        }
+        if t >= 1.0 {
+            self.anim = None;
+        }
+    }
+
     // ---------- painting overlays ----------
 
     fn paint_overlays(&self, p: &egui::Painter) {
         let v = self.view();
-        let sel_stroke = Stroke::new(1.25, INDIGO);
+        let sel_stroke = Stroke::new(1.25, theme::INDIGO);
         for g in &self.guides {
-            p.line_segment([v.w2s(g[0]), v.w2s(g[1])], Stroke::new(1.0, GUIDE));
+            p.line_segment([v.w2s(g[0]), v.w2s(g[1])], Stroke::new(1.0, theme::GUIDE));
         }
         if let Some(t) = self.drop_target.and_then(|id| self.doc.get(id)) {
             let r = v.rect(t.rect).expand(4.0);
-            p.rect(r, CornerRadius::same(10), INDIGO.gamma_multiply(0.08), Stroke::new(2.0, INDIGO), StrokeKind::Outside);
+            p.rect(r, CornerRadius::same(10), theme::INDIGO.gamma_multiply(0.08), Stroke::new(2.0, theme::INDIGO), StrokeKind::Outside);
         }
         for id in &self.sel {
             let Some(e) = self.doc.get(*id) else { continue };
-            if e.kind == Kind::Arrow {
-                let path = self.doc.arrow_path(e);
-                p.add(egui::Shape::line(path.iter().map(|q| v.w2s(*q)).collect(), Stroke::new(e.style.width * self.zoom + 4.0, INDIGO.gamma_multiply(0.18))));
-                if self.sel.len() == 1 {
-                    for q in [path[0], *path.last().unwrap()] {
-                        p.circle(v.w2s(q), 5.0, Color32::WHITE, Stroke::new(1.5, INDIGO));
+            match e.kind {
+                Kind::Arrow => {
+                    let path = self.doc.arrow_path(e);
+                    p.add(egui::Shape::line(path.iter().map(|q| v.w2s(*q)).collect(), Stroke::new(e.style.width * self.zoom + 4.0, theme::INDIGO.gamma_multiply(0.18))));
+                    if self.sel.len() == 1 {
+                        for q in [path[0], *path.last().unwrap()] {
+                            p.circle(v.w2s(q), 5.0, Color32::WHITE, Stroke::new(1.5, theme::INDIGO));
+                        }
                     }
                 }
-            } else {
-                p.rect_stroke(v.rect(self.doc.bounds(e)).expand(4.0), CornerRadius::same(4), sel_stroke, StrokeKind::Middle);
+                Kind::Comment => {
+                    p.circle_stroke(v.w2s(e.rect.min), 16.0, Stroke::new(2.0, theme::INDIGO));
+                }
+                _ => {
+                    p.rect_stroke(v.rect(self.doc.bounds(e)).expand(4.0), CornerRadius::same(4), sel_stroke, StrokeKind::Middle);
+                }
             }
         }
         if let Some(e) = self.single_box() {
             for h in Self::handles(v.rect(e.rect)) {
-                p.rect(Rect::from_center_size(h, vec2(9.0, 9.0)), CornerRadius::same(3), Color32::WHITE, Stroke::new(1.5, INDIGO), StrokeKind::Middle);
+                p.rect(Rect::from_center_size(h, vec2(9.0, 9.0)), CornerRadius::same(3), Color32::WHITE, Stroke::new(1.5, theme::INDIGO), StrokeKind::Middle);
             }
         } else if self.sel.len() > 1 {
             if let Some(b) = self.doc.bounds_of(&self.sel) {
-                p.rect_stroke(v.rect(b).expand(8.0), CornerRadius::same(6), Stroke::new(1.0, INDIGO.gamma_multiply(0.6)), StrokeKind::Middle);
+                p.rect_stroke(v.rect(b).expand(8.0), CornerRadius::same(6), Stroke::new(1.0, theme::INDIGO.gamma_multiply(0.6)), StrokeKind::Middle);
             }
         }
         if let Drag::Marquee(start) = self.drag {
             if let Some(h) = p.ctx().input(|i| i.pointer.hover_pos()) {
                 let r = Rect::from_two_pos(v.w2s(start), h);
-                p.rect(r, CornerRadius::same(2), INDIGO.gamma_multiply(0.08), Stroke::new(1.0, INDIGO), StrokeKind::Middle);
+                p.rect(r, CornerRadius::same(2), theme::INDIGO.gamma_multiply(0.08), Stroke::new(1.0, theme::INDIGO), StrokeKind::Middle);
             }
         }
         if let (Some(id), Drag::None, Tool::Select) = (self.hover_shape, &self.drag, self.tool) {
             let hp = p.ctx().input(|i| i.pointer.hover_pos());
             for (a, edge) in self.anchors(id) {
                 let hot = hp.is_some_and(|h| h.distance(a) < 9.0);
-                p.line_segment([edge, a], Stroke::new(1.0, INDIGO.gamma_multiply(0.35)));
-                p.circle(a, if hot { 6.5 } else { 5.0 }, if hot { INDIGO } else { Color32::WHITE }, Stroke::new(1.5, INDIGO));
+                p.line_segment([edge, a], Stroke::new(1.0, theme::INDIGO.gamma_multiply(0.35)));
+                p.circle(a, if hot { 6.5 } else { 5.0 }, if hot { theme::INDIGO } else { Color32::WHITE }, Stroke::new(1.5, theme::INDIGO));
+            }
+        }
+        // scenario being recorded: numbered badges
+        if let Some((_, nodes)) = &self.rec {
+            let pts: Vec<Pos2> = nodes.iter().filter_map(|id| self.doc.get(*id)).map(|e| v.w2s(e.rect.center())).collect();
+            if pts.len() > 1 {
+                p.extend(egui::Shape::dashed_line(&pts, Stroke::new(2.0, theme::RED), 8.0, 5.0));
+            }
+            for (i, id) in nodes.iter().enumerate() {
+                if let Some(e) = self.doc.get(*id) {
+                    let r = v.rect(e.rect);
+                    p.rect_stroke(r.expand(4.0), CornerRadius::same(12), Stroke::new(2.0, theme::RED), StrokeKind::Outside);
+                    let c = r.left_top();
+                    p.circle_filled(c, 11.0, theme::RED);
+                    p.text(c, Align2::CENTER_CENTER, format!("{}", i + 1), FontId::proportional(12.0), Color32::WHITE);
+                }
+            }
+        }
+        // collaborators' cursors
+        if let Some(c) = &self.collab {
+            for (id, peer) in &c.peers {
+                let s = v.w2s(peer.pos);
+                let col = peer_color(*id);
+                p.add(egui::Shape::convex_polygon(vec![s, s + vec2(0.0, 16.0), s + vec2(4.5, 12.0), s + vec2(11.0, 11.0)], col, Stroke::new(1.0, Color32::WHITE)));
+                let g = p.layout_no_wrap(peer.name.clone(), FontId::proportional(11.5), Color32::WHITE);
+                let b = Rect::from_min_size(s + vec2(12.0, 14.0), g.size() + vec2(10.0, 4.0));
+                p.rect_filled(b, CornerRadius::same(6), col);
+                p.galley(b.min + vec2(5.0, 2.0), g, Color32::WHITE);
             }
         }
     }
+}
 
-    // ---------- UI chrome ----------
-
-    fn toolbar(&mut self, ctx: &Context) {
-        egui::Area::new(Id::new("toolbar")).anchor(Align2::CENTER_TOP, vec2(0.0, 10.0)).show(ctx, |ui| {
-            panel().show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 2.0;
-                    for (t, icon, tip, _) in TOOLS {
-                        if icon_button(ui, &mut self.icons, icon, self.tool == t, tip).clicked() {
-                            self.tool = t;
-                        }
-                    }
-                    ui.add_space(4.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-                    if icon_button(ui, &mut self.icons, "t-library", self.library, "Components library  L").clicked() {
-                        self.library = !self.library;
-                    }
-                });
-            });
-        });
-    }
-
-    fn top_left(&mut self, ctx: &Context) {
-        egui::Area::new(Id::new("menu")).anchor(Align2::LEFT_TOP, vec2(84.0, 10.0)).show(ctx, |ui| {
-            panel().show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    if icon_button(ui, &mut self.icons, "menu", self.menu, "Menu").clicked() {
-                        self.menu = !self.menu;
-                        self.export_menu = false;
-                    }
-                    let name = self.path.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().to_string()).unwrap_or("Untitled".into());
-                    ui.label(RichText::new(format!("{name}{}", if self.dirty { " •" } else { "" })).color(GRAY_700).strong());
-                    ui.add_space(6.0);
-                });
-            });
-        });
-        if !self.menu {
-            return;
-        }
-        egui::Area::new(Id::new("menu-pop")).anchor(Align2::LEFT_TOP, vec2(84.0, 62.0)).order(Order::Foreground).show(ctx, |ui| {
-            panel().show(ui, |ui| {
-                ui.set_width(220.0);
-                let item = |ui: &mut Ui, label: &str, key: &str| ui.add(egui::Button::new(label).shortcut_text(key).frame(false).min_size(vec2(208.0, 28.0))).clicked();
-                if item(ui, "New", "") {
-                    self.checkpoint();
-                    self.doc = Doc::default();
-                    self.sel.clear();
-                    self.path = None;
-                    self.menu = false;
-                }
-                if item(ui, "Open…", "⌘O") {
-                    self.menu = false;
-                    self.open(ctx);
-                }
-                if item(ui, "Save", "⌘S") {
-                    self.menu = false;
-                    self.save(ctx, false);
-                }
-                if item(ui, "Save as…", "⇧⌘S") {
-                    self.menu = false;
-                    self.save(ctx, true);
-                }
-                ui.separator();
-                if item(ui, "Export PNG", "⌘E") {
-                    self.menu = false;
-                    self.export(ctx, "png");
-                }
-                if item(ui, "Export SVG", "") {
-                    self.menu = false;
-                    self.export(ctx, "svg");
-                }
-                if item(ui, "Export animated GIF", "⇧⌘E") {
-                    self.menu = false;
-                    self.export(ctx, "gif");
-                }
-                ui.separator();
-                if item(ui, "Zoom to fit", "⇧1") {
-                    self.menu = false;
-                    self.fit();
-                }
-                if item(ui, "Wrap selection in region", "⌘G") {
-                    self.menu = false;
-                    self.group_region();
-                }
-            });
-        });
-    }
-
-    fn top_right(&mut self, ctx: &Context) {
-        egui::Area::new(Id::new("export")).anchor(Align2::RIGHT_TOP, vec2(-12.0, 10.0)).show(ctx, |ui| {
-            panel().show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    let b = egui::Button::new(RichText::new("  Export  ").color(Color32::WHITE).strong()).fill(INDIGO).corner_radius(8).min_size(vec2(0.0, 34.0));
-                    if ui.add(b).clicked() {
-                        self.export_menu = !self.export_menu;
-                        self.menu = false;
-                    }
-                });
-            });
-        });
-        if self.export_menu {
-            egui::Area::new(Id::new("export-pop")).anchor(Align2::RIGHT_TOP, vec2(-12.0, 62.0)).order(Order::Foreground).show(ctx, |ui| {
-                panel().show(ui, |ui| {
-                    ui.set_width(220.0);
-                    let scope = if self.sel.is_empty() { "whole canvas" } else { "selection only" };
-                    ui.label(RichText::new(format!("Exports {scope}")).small().color(MUTED));
-                    for (fmt, label, sub) in [("png", "PNG image", "2× resolution"), ("svg", "SVG vector", "editable, scalable"), ("gif", "Animated GIF", "loops flow animation")] {
-                        let r = ui.add(egui::Button::new(RichText::new(label).strong()).shortcut_text(sub).frame(false).min_size(vec2(208.0, 30.0)));
-                        if r.clicked() {
-                            self.export(ctx, fmt);
-                        }
-                    }
-                });
-            });
-        }
-    }
-
-    fn library_panel(&mut self, ctx: &Context) {
-        if !self.library {
-            return;
-        }
-        let h = (self.canvas.height() - 250.0).max(160.0);
-        egui::Area::new(Id::new("library")).anchor(Align2::RIGHT_TOP, vec2(-12.0, 62.0)).show(ctx, |ui| {
-            panel().inner_margin(Margin::same(10)).show(ui, |ui| {
-                ui.set_width(272.0);
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(if self.replace_icon { "Pick a new icon" } else { "Components" }).strong().size(14.0));
-                    ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
-                        if icon_button(ui, &mut self.icons, "x", false, "Close  L").clicked() {
-                            self.library = false;
-                            self.replace_icon = false;
-                        }
-                    });
-                });
-                ui.add(TextEdit::singleline(&mut self.lib_query).hint_text("Search  e.g. postgres, queue, k8s").desired_width(f32::INFINITY).margin(Margin::symmetric(8, 6)));
-                ui.add_space(4.0);
-                let q = self.lib_query.to_lowercase();
-                egui::ScrollArea::vertical().max_height(h).show(ui, |ui| {
-                    for cat in CATEGORIES {
-                        let items: Vec<_> = ICONS.iter().filter(|i| i.2 == *cat && (q.is_empty() || i.0.contains(&q) || i.1.to_lowercase().contains(&q) || cat.to_lowercase().contains(&q))).collect();
-                        if items.is_empty() {
-                            continue;
-                        }
-                        ui.add_space(4.0);
-                        ui.label(RichText::new(cat.to_uppercase()).size(10.5).color(MUTED).strong());
-                        ui.horizontal_wrapped(|ui| {
-                            ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
-                            for it in items {
-                                let r = lib_tile(ui, &mut self.icons, it);
-                                if r.clicked() {
-                                    if self.replace_icon {
-                                        self.set_icon(it.0);
-                                    } else {
-                                        self.insert_node(it.0, None);
-                                    }
-                                }
-                                if r.drag_started() && !self.replace_icon {
-                                    self.lib_drag = Some(it.0);
-                                }
-                            }
-                        });
-                    }
-                });
-                ui.add_space(2.0);
-                ui.label(RichText::new("Click to add · drag onto canvas").small().color(MUTED));
-            });
-        });
-        // drag ghost
-        if let (Some(icon), Some(p)) = (self.lib_drag, ctx.input(|i| i.pointer.hover_pos())) {
-            let painter = ctx.layer_painter(LayerId::new(Order::Tooltip, Id::new("ghost")));
-            let r = Rect::from_center_size(p, vec2(168.0, 56.0) * self.zoom);
-            painter.rect(r, CornerRadius::same(12), Color32::from_white_alpha(230), Stroke::new(1.5, INDIGO), StrokeKind::Inside);
-            if let (Some(t), Some(it)) = (self.icons.get(ctx, icon), icons::find(icon)) {
-                painter.image(t, Rect::from_center_size(r.center(), vec2(24.0, 24.0)), UV, icons::accent(it.2));
-            }
-        }
-    }
-
-    fn props_panel(&mut self, ctx: &Context) {
-        let els: Vec<Element> = self.doc.elements.iter().filter(|e| self.sel.contains(&e.id)).cloned().collect();
-        let Some(first) = els.first() else { return };
-        let s = first.style;
-        let has = |ks: &[Kind]| els.iter().any(|e| ks.contains(&e.kind));
-        let mut change: Option<Box<dyn Fn(&mut Style)>> = None;
-        let mut action = "";
-        egui::Area::new(Id::new("props")).anchor(Align2::LEFT_TOP, vec2(12.0, 62.0)).show(ctx, |ui| {
-            panel().inner_margin(Margin::same(12)).show(ui, |ui| {
-                ui.set_width(212.0);
-                ui.spacing_mut().item_spacing.y = 4.0;
-                section(ui, if has(&[Kind::Node]) { "Accent" } else { "Stroke" });
-                ui.horizontal_wrapped(|ui| {
-                    for c in STROKES {
-                        if swatch(ui, c, s.stroke == c).clicked() {
-                            change = Some(Box::new(move |st| st.stroke = c));
-                        }
-                    }
-                    let mut c = s.stroke;
-                    if egui::color_picker::color_edit_button_srgba(ui, &mut c, egui::color_picker::Alpha::Opaque).changed() {
-                        change = Some(Box::new(move |st| st.stroke = c));
-                    }
-                });
-                if has(&[Kind::Rect, Kind::Ellipse, Kind::Diamond, Kind::Region, Kind::Node]) {
-                    section(ui, "Background");
-                    ui.horizontal_wrapped(|ui| {
-                        for c in FILLS {
-                            if swatch(ui, c, s.fill == c).clicked() {
-                                change = Some(Box::new(move |st| st.fill = c));
-                            }
-                        }
-                    });
-                }
-                if has(&[Kind::Rect, Kind::Ellipse, Kind::Diamond, Kind::Pen, Kind::Arrow, Kind::Region]) {
-                    section(ui, "Stroke width");
-                    if let Some(w) = seg(ui, s.width, &[(1.0, "Thin"), (2.0, "Regular"), (4.0, "Bold")]) {
-                        change = Some(Box::new(move |st| st.width = w));
-                    }
-                }
-                if !has(&[Kind::Text, Kind::Pen]) {
-                    section(ui, "Line style");
-                    if let Some(d) = seg(ui, s.dashed, &[(false, "Solid"), (true, "Dashed")]) {
-                        change = Some(Box::new(move |st| st.dashed = d));
-                    }
-                }
-                if has(&[Kind::Rect]) {
-                    section(ui, "Corners");
-                    if let Some(r) = seg(ui, s.round, &[(false, "Sharp"), (true, "Round")]) {
-                        change = Some(Box::new(move |st| st.round = r));
-                    }
-                }
-                if has(&[Kind::Rect, Kind::Ellipse, Kind::Diamond, Kind::Text, Kind::Arrow, Kind::Region]) {
-                    section(ui, "Font size");
-                    if let Some(f) = seg(ui, s.font, &[(13.0, "S"), (18.0, "M"), (24.0, "L"), (36.0, "XL")]) {
-                        change = Some(Box::new(move |st| st.font = f));
-                    }
-                }
-                if has(&[Kind::Arrow]) {
-                    section(ui, "Route");
-                    if let Some(r) = seg(ui, s.route, &[(Route::Elbow, "Elbow"), (Route::Straight, "Straight"), (Route::Curve, "Curve")]) {
-                        change = Some(Box::new(move |st| st.route = r));
-                    }
-                    section(ui, "Arrowheads");
-                    let cur = (s.head_start, s.head_end);
-                    if let Some((a, b)) = seg(ui, cur, &[((false, false), "None"), ((false, true), "End"), ((true, true), "Both")]) {
-                        change = Some(Box::new(move |st| (st.head_start, st.head_end) = (a, b)));
-                    }
-                    section(ui, "Flow animation");
-                    if let Some(f) = seg(ui, s.flow, &[(Flow::None, "Off"), (Flow::Dots, "Packets"), (Flow::Dashes, "Dashes")]) {
-                        change = Some(Box::new(move |st| st.flow = f));
-                    }
-                }
-                if has(&[Kind::Node]) {
-                    section(ui, "Icon");
-                    if ui.button("Change icon…").clicked() {
-                        action = "icon";
-                    }
-                }
-                section(ui, "Arrange");
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 2.0;
-                    for (icon, tip, a) in [("front", "Bring to front", "front"), ("back", "Send to back", "back"), ("copy", "Duplicate  ⌘D", "dup"), ("trash", "Delete  ⌫", "del")] {
-                        if icon_button(ui, &mut self.icons, icon, false, tip).clicked() {
-                            action = a;
-                        }
-                    }
-                });
-            });
-        });
-        if let Some(f) = change {
-            self.checkpoint();
-            for id in self.sel.clone() {
-                if let Some(e) = self.doc.get_mut(id) {
-                    f(&mut e.style);
-                }
-            }
-        }
-        match action {
-            "icon" => {
-                self.library = true;
-                self.replace_icon = true;
-            }
-            "front" | "back" => {
-                self.checkpoint();
-                let (mut picked, rest): (Vec<Element>, Vec<Element>) = std::mem::take(&mut self.doc.elements).into_iter().partition(|e| self.sel.contains(&e.id));
-                self.doc.elements = if action == "front" {
-                    let mut v = rest;
-                    v.append(&mut picked);
-                    v
-                } else {
-                    picked.extend(rest);
-                    picked
-                };
-            }
-            "dup" => self.duplicate(),
-            "del" => self.delete_selected(),
-            _ => {}
-        }
-    }
-
-    fn bottom_bars(&mut self, ctx: &Context) {
-        egui::Area::new(Id::new("zoom")).anchor(Align2::LEFT_BOTTOM, vec2(12.0, -12.0)).show(ctx, |ui| {
-            panel().show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 2.0;
-                    if icon_button(ui, &mut self.icons, "minus", false, "Zoom out  ⌘−").clicked() {
-                        self.zoom_at(self.canvas.center(), 1.0 / 1.2);
-                    }
-                    if ui.add(egui::Button::new(format!("{:.0}%", self.zoom * 100.0)).frame(false).min_size(vec2(52.0, 34.0))).on_hover_text("Reset zoom  ⌘0").clicked() {
-                        self.zoom_at(self.canvas.center(), 1.0 / self.zoom);
-                    }
-                    if icon_button(ui, &mut self.icons, "plus", false, "Zoom in  ⌘+").clicked() {
-                        self.zoom_at(self.canvas.center(), 1.2);
-                    }
-                    if icon_button(ui, &mut self.icons, "fit", false, "Zoom to fit  ⇧1").clicked() {
-                        self.fit();
-                    }
-                    ui.separator();
-                    if icon_button(ui, &mut self.icons, "undo", false, "Undo  ⌘Z").clicked() {
-                        self.undo();
-                    }
-                    if icon_button(ui, &mut self.icons, "redo", false, "Redo  ⇧⌘Z").clicked() {
-                        self.redo();
-                    }
-                });
-            });
-        });
-        if self.doc.elements.iter().any(|e| e.kind == Kind::Arrow && e.style.flow != Flow::None) {
-            egui::Area::new(Id::new("play")).anchor(Align2::RIGHT_BOTTOM, vec2(-12.0, -12.0)).show(ctx, |ui| {
-                panel().show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        let (icon, tip) = if self.playing { ("pause", "Pause flow animation") } else { ("play", "Play flow animation") };
-                        if icon_button(ui, &mut self.icons, icon, self.playing, tip).clicked() {
-                            self.playing = !self.playing;
-                        }
-                        ui.label(RichText::new("Flow").color(GRAY_700));
-                        ui.add_space(6.0);
-                    });
-                });
-            });
-        }
-    }
-
-    fn text_editor(&mut self, ctx: &Context) {
-        let Some(id) = self.editing else { return };
-        let Some(e) = self.doc.get(id).cloned() else {
-            self.editing = None;
-            return;
-        };
-        let v = self.view();
-        let z = self.zoom;
-        let r = e.rect;
-        let (pos, width, size, bold, color, align) = match e.kind {
-            Kind::Text => (v.w2s(r.min), (r.width() + 40.0) * z, e.style.font, false, e.style.stroke, Align::Min),
-            Kind::Node => {
-                let l = node_layout(r);
-                (v.w2s(pos2(l.text_x, r.min.y + 8.0)), (r.max.x - l.text_x - 8.0) * z, NODE_TITLE, false, INK, Align::Min)
-            }
-            Kind::Region => (v.w2s(r.min + vec2(14.0, 8.0)), 240.0 * z, e.style.font, true, e.style.stroke, Align::Min),
-            Kind::Arrow => {
-                let c = render::arrow_label_center(&self.doc.arrow_path(&e));
-                (v.w2s(c - vec2(90.0, 10.0)), 180.0 * z, (e.style.font * 0.7).max(11.0), false, e.style.stroke, Align::Center)
-            }
-            _ => {
-                let lines = e.text.split('\n').count().max(1) as f32;
-                let h = lines * e.style.font * LINE_H;
-                (v.w2s(pos2(r.min.x, r.center().y - h / 2.0)), r.width() * z, e.style.font, false, e.style.stroke, Align::Center)
-            }
-        };
-        let mut done = false;
-        let focus = std::mem::take(&mut self.edit_focus);
-        let mut text = e.text.clone();
-        egui::Area::new(Id::new("editor")).fixed_pos(pos).order(Order::Foreground).show(ctx, |ui| {
-            let te = TextEdit::multiline(&mut text)
-                .font(render::font(size * z, bold))
-                .text_color(color)
-                .frame(false)
-                .desired_width(width.max(40.0))
-                .desired_rows(1)
-                .margin(Margin::ZERO)
-                .horizontal_align(align);
-            let r = ui.add(te);
-            if focus {
-                r.request_focus();
-            }
-            if r.lost_focus() {
-                done = true;
-            }
-        });
-        if let Some(el) = self.doc.get_mut(id) {
-            el.text = text;
-        }
-        if done {
-            self.finish_edit();
-        }
-    }
+pub(crate) fn peer_color(id: u32) -> Color32 {
+    const C: [Color32; 6] = [
+        Color32::from_rgb(0xe1, 0x1d, 0x48),
+        Color32::from_rgb(0x05, 0x96, 0x69),
+        Color32::from_rgb(0xd9, 0x77, 0x06),
+        Color32::from_rgb(0x25, 0x63, 0xeb),
+        Color32::from_rgb(0x93, 0x33, 0xea),
+        Color32::from_rgb(0x08, 0x91, 0xb2),
+    ];
+    C[id as usize % C.len()]
 }
 
 impl eframe::App for App {
@@ -1342,9 +1302,19 @@ impl eframe::App for App {
         if let Ok(s) = serde_json::to_string(&self.doc) {
             storage.set_string("doc", s);
         }
+        storage.set_string("dark", if self.dark { "1" } else { "0" }.into());
+        storage.set_string("name", self.my_name.clone());
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        if let Some(c) = &mut self.collab {
+            c.leave();
+        }
     }
 
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+        theme::set_dark(self.dark);
+        let now = ctx.input(|i| i.time);
         if let Some(rx) = &self.export_rx {
             if let Ok(r) = rx.try_recv() {
                 self.export_rx = None;
@@ -1362,13 +1332,25 @@ impl eframe::App for App {
         }
 
         self.shortcuts(ctx);
+        self.step_anim(now);
 
-        // keep text boxes sized to their content
-        for e in self.doc.elements.iter_mut().filter(|e| e.kind == Kind::Text) {
-            e.rect.max = e.rect.min + render::measure(ctx, &e.text, e.style.font);
+        if let Some(c) = &mut self.collab {
+            let cursor = ctx.input(|i| i.pointer.hover_pos()).filter(|p| self.canvas.contains(*p)).map(|p| View { origin: self.canvas.min + self.offset, zoom: self.zoom }.s2w(p));
+            if c.tick(&mut self.doc, now, cursor) {
+                self.sel.retain(|id| self.doc.get(*id).is_some());
+            }
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
 
-        egui::CentralPanel::default().frame(Frame::new().fill(CANVAS_BG)).show(ctx, |ui| {
+        // keep text boxes sized to their content
+        let sketch = self.doc.sketch;
+        for e in self.doc.elements.iter_mut().filter(|e| e.kind == Kind::Text) {
+            e.rect.max = e.rect.min + render::measure(ctx, &e.text, e.style.font, sketch);
+        }
+
+        self.code_panel(ctx);
+
+        egui::CentralPanel::default().frame(Frame::new().fill(theme::canvas_bg())).show(ctx, |ui| {
             let rect = ui.max_rect();
             self.canvas = rect;
             if self.fit_pending {
@@ -1380,6 +1362,8 @@ impl eframe::App for App {
             let space = ctx.input(|i| i.key_down(Key::Space)) && !ctx.wants_keyboard_input();
             if matches!(self.drag, Drag::Pan) || space || self.tool == Tool::Hand {
                 ctx.set_cursor_icon(if matches!(self.drag, Drag::Pan) { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
+            } else if self.rec.is_some() {
+                ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
             } else if !matches!(self.tool, Tool::Select) {
                 ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
             }
@@ -1387,20 +1371,32 @@ impl eframe::App for App {
             let p = ui.painter_at(rect);
             let v = self.view();
             render::draw_grid(&p, rect, &v);
-            let t = ctx.input(|i| i.time) as f32;
-            let phase = if self.playing { (t % LOOP_SECS) / LOOP_SECS } else { 0.0 };
-            render::draw_doc(&p, ctx, &self.doc, &v, &mut self.icons, phase, self.editing);
-            self.paint_overlays(&p);
+            let phase = if self.playing { (now as f32 % LOOP_SECS) / LOOP_SECS } else { 0.0 };
+            let hover_comment = resp.hover_pos().and_then(|h| self.doc.hit(v.s2w(h), 4.0 / self.zoom)).filter(|id| self.doc.get(*id).is_some_and(|e| e.kind == Kind::Comment));
+            let mut open: Vec<u64> = self.sel.iter().copied().chain(hover_comment).chain(self.editing).collect();
+            open.dedup();
+            let opts = Opts { phase, dark: self.dark, sketch: self.doc.sketch, failures: self.failures, hide_text: self.editing, open_comments: &open };
+            render::draw_doc(&p, ctx, &self.doc, &v, &mut self.icons, &opts);
+            if let Some((i, start)) = self.scn_play {
+                if let Some(scn) = self.doc.scenarios.get(i).cloned() {
+                    render::draw_scenario(&p, ctx, &self.doc, &v, &mut self.icons, &opts, &scn, (now - start) as f32, rect);
+                    ctx.request_repaint();
+                } else {
+                    self.scn_play = None;
+                }
+            } else {
+                self.paint_overlays(&p);
+            }
 
             if self.doc.elements.is_empty() {
                 let c = rect.center();
-                p.text(c - vec2(0.0, 14.0), Align2::CENTER_CENTER, "Start your diagram", FontId::proportional(22.0), Color32::from_rgb(0x9c, 0xa3, 0xaf));
+                p.text(c - vec2(0.0, 14.0), Align2::CENTER_CENTER, "Start your diagram", FontId::proportional(22.0), theme::muted());
                 p.text(
                     c + vec2(0.0, 16.0),
                     Align2::CENTER_CENTER,
-                    "Drag a component from the library  ·  R rectangle  ·  A connector  ·  double-click for text",
+                    "Drag from the library  ·  /  insert component  ·  ⌘K commands  ·  ⌘/ diagram as code  ·  ⌘I import",
                     FontId::proportional(13.0),
-                    Color32::from_rgb(0xb4, 0xb9, 0xc2),
+                    theme::muted().gamma_multiply(0.8),
                 );
             }
         });
@@ -1409,24 +1405,19 @@ impl eframe::App for App {
         self.top_left(ctx);
         self.top_right(ctx);
         self.library_panel(ctx);
-        self.props_panel(ctx);
-        self.bottom_bars(ctx);
-        self.text_editor(ctx);
-
-        if let Some((msg, until)) = self.toast.clone() {
-            if ctx.input(|i| i.time) > until {
-                self.toast = None;
-            } else {
-                egui::Area::new(Id::new("toast")).anchor(Align2::CENTER_BOTTOM, vec2(0.0, -24.0)).order(Order::Tooltip).show(ctx, |ui| {
-                    Frame::new().fill(Color32::from_rgb(0x11, 0x18, 0x27)).corner_radius(10).inner_margin(Margin::symmetric(14, 9)).show(ui, |ui| {
-                        ui.label(RichText::new(msg).color(Color32::WHITE));
-                    });
-                });
-                ctx.request_repaint_after(std::time::Duration::from_millis(200));
-            }
+        if self.scn_play.is_none() && self.rec.is_none() {
+            self.props_panel(ctx);
         }
+        self.bottom_bars(ctx);
+        self.scenario_panel(ctx);
+        self.recording_banner(ctx);
+        self.collab_window(ctx);
+        self.picker_popup(ctx);
+        self.palette_popup(ctx);
+        self.text_editor(ctx);
+        self.toast_view(ctx);
 
-        let animating = self.playing && self.doc.elements.iter().any(|e| e.kind == Kind::Arrow && e.style.flow != Flow::None);
+        let animating = self.anim.is_some() || (self.playing && self.doc.elements.iter().any(|e| e.kind == Kind::Arrow && (e.style.flow != Flow::None || (self.failures && e.failover))));
         if animating {
             ctx.request_repaint();
         }
@@ -1451,116 +1442,38 @@ fn render_bounds(els: &[Element]) -> Rect {
     bbox(&pts)
 }
 
-fn setup_style(ctx: &Context) {
-    ctx.style_mut(|s| {
-        s.visuals = egui::Visuals::light();
-        s.visuals.selection.bg_fill = INDIGO;
-        s.visuals.selection.stroke = Stroke::new(1.0, Color32::WHITE);
-        s.visuals.hyperlink_color = INDIGO;
-        s.visuals.window_corner_radius = CornerRadius::same(12);
-        s.visuals.menu_corner_radius = CornerRadius::same(10);
-        s.visuals.panel_fill = CANVAS_BG;
-        for w in [&mut s.visuals.widgets.inactive, &mut s.visuals.widgets.hovered, &mut s.visuals.widgets.active, &mut s.visuals.widgets.noninteractive, &mut s.visuals.widgets.open] {
-            w.corner_radius = CornerRadius::same(7);
+pub(crate) fn setup_style(ctx: &Context, dark: bool) {
+    theme::set_dark(dark);
+    let mut s = (*ctx.style()).clone();
+    s.visuals = if dark { egui::Visuals::dark() } else { egui::Visuals::light() };
+    s.visuals.selection.bg_fill = theme::INDIGO;
+    s.visuals.selection.stroke = Stroke::new(1.0, Color32::WHITE);
+    s.visuals.hyperlink_color = theme::INDIGO;
+    s.visuals.window_corner_radius = CornerRadius::same(12);
+    s.visuals.menu_corner_radius = CornerRadius::same(10);
+    s.visuals.panel_fill = theme::panel_bg();
+    s.visuals.window_fill = theme::panel_bg();
+    s.visuals.window_stroke = Stroke::new(1.0, theme::panel_border());
+    for w in [&mut s.visuals.widgets.inactive, &mut s.visuals.widgets.hovered, &mut s.visuals.widgets.active, &mut s.visuals.widgets.noninteractive, &mut s.visuals.widgets.open] {
+        w.corner_radius = CornerRadius::same(7);
+    }
+    s.visuals.widgets.inactive.weak_bg_fill = theme::hover();
+    s.visuals.widgets.inactive.bg_fill = theme::hover();
+    s.visuals.widgets.inactive.bg_stroke = Stroke::NONE;
+    s.visuals.widgets.hovered.bg_stroke = Stroke::NONE;
+    s.visuals.extreme_bg_color = theme::hover();
+    s.visuals.window_shadow = egui::Shadow { offset: [0, 6], blur: 24, spread: 0, color: Color32::from_black_alpha(if dark { 90 } else { 28 }) };
+    s.visuals.popup_shadow = s.visuals.window_shadow;
+    s.spacing.item_spacing = vec2(6.0, 6.0);
+    s.spacing.button_padding = vec2(8.0, 5.0);
+    s.spacing.interact_size.y = 26.0;
+    use egui::TextStyle::*;
+    for (st, size) in [(Body, 13.0), (Button, 13.0), (Small, 11.0), (Heading, 16.0), (Monospace, 12.5)] {
+        if let Some(f) = s.text_styles.get_mut(&st) {
+            f.size = size;
         }
-        s.visuals.widgets.inactive.weak_bg_fill = GRAY_100;
-        s.visuals.widgets.inactive.bg_fill = GRAY_100;
-        s.visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(0xe5, 0xe7, 0xeb);
-        s.visuals.widgets.inactive.bg_stroke = Stroke::NONE;
-        s.visuals.widgets.hovered.bg_stroke = Stroke::NONE;
-        s.visuals.extreme_bg_color = GRAY_100;
-        s.visuals.window_shadow = Shadow { offset: [0, 6], blur: 24, spread: 0, color: Color32::from_black_alpha(28) };
-        s.visuals.popup_shadow = s.visuals.window_shadow;
-        s.spacing.item_spacing = vec2(6.0, 6.0);
-        s.spacing.button_padding = vec2(8.0, 5.0);
-        s.spacing.interact_size.y = 26.0;
-        use egui::TextStyle::*;
-        for (st, size) in [(Body, 13.0), (Button, 13.0), (Small, 11.0), (Heading, 16.0), (Monospace, 12.5)] {
-            if let Some(f) = s.text_styles.get_mut(&st) {
-                f.size = size;
-            }
-        }
-    });
-}
-
-fn panel() -> Frame {
-    Frame::new()
-        .fill(Color32::WHITE)
-        .corner_radius(12)
-        .stroke(Stroke::new(1.0, Color32::from_rgb(0xe8, 0xe9, 0xee)))
-        .shadow(Shadow { offset: [0, 4], blur: 18, spread: 0, color: Color32::from_black_alpha(16) })
-        .inner_margin(Margin::same(5))
-}
-
-fn icon_button(ui: &mut Ui, icons: &mut Icons, icon: &str, active: bool, tip: &str) -> Response {
-    let (rect, resp) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::click());
-    let bg = if active {
-        INDIGO_50
-    } else if resp.hovered() {
-        GRAY_100
-    } else {
-        Color32::TRANSPARENT
-    };
-    ui.painter().rect_filled(rect, CornerRadius::same(8), bg);
-    if let Some(t) = icons.get(ui.ctx(), icon) {
-        ui.painter().image(t, Rect::from_center_size(rect.center(), vec2(18.0, 18.0)), UV, if active { INDIGO_600 } else { GRAY_700 });
     }
-    if tip.is_empty() { resp } else { resp.on_hover_text(tip) }
-}
-
-fn lib_tile(ui: &mut Ui, icons: &mut Icons, it: &(&str, &str, &str, &str)) -> Response {
-    let (rect, resp) = ui.allocate_exact_size(vec2(62.0, 64.0), Sense::click_and_drag());
-    if resp.hovered() {
-        ui.painter().rect_filled(rect, CornerRadius::same(8), GRAY_100);
-    }
-    let accent = icons::accent(it.2);
-    let tile = Rect::from_center_size(pos2(rect.center().x, rect.min.y + 22.0), vec2(34.0, 34.0));
-    ui.painter().rect_filled(tile, CornerRadius::same(9), tint(accent, 0.12));
-    if let Some(t) = icons.get(ui.ctx(), it.0) {
-        ui.painter().image(t, tile.shrink(8.0), UV, accent);
-    }
-    let label = if it.1.chars().count() > 10 { format!("{}…", it.1.chars().take(9).collect::<String>()) } else { it.1.to_string() };
-    ui.painter().text(pos2(rect.center().x, rect.max.y - 9.0), Align2::CENTER_CENTER, label, FontId::proportional(10.5), GRAY_700);
-    resp.on_hover_text(it.1).on_hover_cursor(egui::CursorIcon::Grab)
-}
-
-fn section(ui: &mut Ui, title: &str) {
-    ui.add_space(6.0);
-    ui.label(RichText::new(title).size(11.0).color(MUTED).strong());
-}
-
-fn swatch(ui: &mut Ui, c: Color32, selected: bool) -> Response {
-    let (rect, resp) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
-    let p = ui.painter();
-    if selected {
-        p.rect_stroke(rect.expand(2.0), CornerRadius::same(7), Stroke::new(2.0, INDIGO), StrokeKind::Outside);
-    }
-    if c.a() == 0 {
-        p.rect(rect, CornerRadius::same(5), Color32::WHITE, Stroke::new(1.0, CARD_BORDER), StrokeKind::Inside);
-        p.line_segment([rect.left_bottom() + vec2(4.0, -4.0), rect.right_top() + vec2(-4.0, 4.0)], Stroke::new(1.5, Color32::from_rgb(0xe0, 0x31, 0x31)));
-    } else {
-        p.rect(rect, CornerRadius::same(5), c, Stroke::new(1.0, Color32::from_black_alpha(20)), StrokeKind::Inside);
-    }
-    resp
-}
-
-fn seg<T: PartialEq + Copy>(ui: &mut Ui, cur: T, opts: &[(T, &str)]) -> Option<T> {
-    let mut out = None;
-    Frame::new().fill(GRAY_100).corner_radius(8).inner_margin(Margin::same(2)).show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 2.0;
-            let w = (204.0 - 2.0 * (opts.len() as f32 - 1.0)) / opts.len() as f32;
-            for (v, label) in opts {
-                let on = *v == cur;
-                let b = egui::Button::new(RichText::new(*label).size(12.0).color(if on { INDIGO_600 } else { GRAY_700 }))
-                    .fill(if on { Color32::WHITE } else { Color32::TRANSPARENT })
-                    .corner_radius(6)
-                    .min_size(vec2(w, 24.0));
-                if ui.add(b).clicked() && !on {
-                    out = Some(*v);
-                }
-            }
-        });
-    });
-    out
+    let t = if dark { egui::Theme::Dark } else { egui::Theme::Light };
+    ctx.set_theme(t);
+    ctx.set_style_of(t, s);
 }
