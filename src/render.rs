@@ -321,24 +321,30 @@ fn draw_arrow(p: &Painter, ctx: &Context, doc: &Doc, e: &Element, v: &View, o: &
     let stroke = Stroke::new(width * z, color);
     let path = doc.arrow_path(e);
     let (line, heads) = arrow_geometry(&path, s, width);
-    let sl = v.pts(&line);
     let phase = o.phase * speed;
-    match flow {
-        Flow::Dashes => {
-            // egui's offset = where the first dash starts, so growing it marches dashes forward.
-            let off = dash_offset(phase) % (DASH * 2.0);
-            p.extend(Shape::dashed_line_with_offset(&sl, stroke, &[DASH * z], &[DASH * z], off * z));
-            if off > DASH {
-                p.add(Shape::line_segment([sl[0], v.w2s(point_at(&line, off - DASH))], stroke));
+    // hops over / gaps under crossing connectors
+    for piece in doc.line_pieces(e, line) {
+        if piece.len() < 2 {
+            continue;
+        }
+        let sl = v.pts(&piece);
+        match flow {
+            Flow::Dashes => {
+                // egui's offset = where the first dash starts, so growing it marches dashes forward.
+                let off = dash_offset(phase) % (DASH * 2.0);
+                p.extend(Shape::dashed_line_with_offset(&sl, stroke, &[DASH * z], &[DASH * z], off * z));
+                if off > DASH {
+                    p.add(Shape::line_segment([sl[0], v.w2s(point_at(&piece, off - DASH))], stroke));
+                }
             }
-        }
-        _ if dashed => p.extend(Shape::dashed_line(&sl, stroke, 8.0 * z, 6.0 * z)),
-        Flow::Dots => {
-            p.add(Shape::line(sl, Stroke::new(width * z, color.gamma_multiply(0.45))));
-        }
-        Flow::None if o.sketch => outline(p, v, &line, false, stroke, false, true, e.id),
-        Flow::None => {
-            p.add(Shape::line(sl, stroke));
+            _ if dashed => p.extend(Shape::dashed_line(&sl, stroke, 8.0 * z, 6.0 * z)),
+            Flow::Dots => {
+                p.add(Shape::line(sl, Stroke::new(width * z, color.gamma_multiply(0.45))));
+            }
+            Flow::None if o.sketch => outline(p, v, &piece, false, stroke, false, true, e.id),
+            Flow::None => {
+                p.add(Shape::line(sl, stroke));
+            }
         }
     }
     for h in heads {

@@ -46,6 +46,17 @@ impl Speed {
     }
 }
 
+/// How crossing connectors are drawn.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum Jumps {
+    /// the connector on top makes a small arc over the one below
+    #[default]
+    Hop,
+    /// the connector below is broken briefly around the crossing
+    Gap,
+    Off,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Flow {
     None,
@@ -397,8 +408,16 @@ pub struct Doc {
     pub scenarios: Vec<Scenario>,
     #[serde(default)]
     pub sketch: bool,
+    #[serde(default)]
+    pub jumps: Jumps,
     #[serde(skip)]
     route_cache: RefCell<HashMap<u64, (u64, Vec<Pos2>)>>,
+    /// elbow corners after spreading overlapping segments into lanes, keyed by a hash of all routes
+    #[serde(skip)]
+    lane_cache: RefCell<(u64, HashMap<u64, Vec<Pos2>>)>,
+    /// crossing points per connector: (where it hops over others, where others cross over it)
+    #[serde(skip)]
+    cross_cache: RefCell<(u64, HashMap<u64, (Vec<Pos2>, Vec<Pos2>)>)>,
 }
 
 impl Doc {
@@ -601,9 +620,71 @@ impl Doc {
         p
     }
 
+    /// Recomputes lanes for all elbow connectors when any route changed. Returns the routes' hash.
+    fn ensure_lanes(&self) -> u64 {
+        let mut raw: Vec<LaneArrow> = vec![];
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for e in self.elements.iter().filter(|e| e.kind == Kind::Arrow) {
+            let c = self.arrow_corners(e);
+            e.id.hash(&mut h);
+            (e.style.route as u8).hash(&mut h);
+            for p in &c {
+                (p.x.to_bits(), p.y.to_bits()).hash(&mut h);
+            }
+            if e.style.route == Route::Elbow {
+                let r = |end: &End| end.id.and_then(|i| self.get(i)).map(|x| x.rect);
+                raw.push(LaneArrow { id: e.id, c, from: r(&e.from), to: r(&e.to) });
+            }
+        }
+        let key = h.finish() | 1;
+        if self.lane_cache.borrow().0 == key {
+            return key;
+        }
+        assign_lanes(&mut raw);
+        *self.lane_cache.borrow_mut() = (key, raw.into_iter().map(|a| (a.id, a.c)).collect());
+        key
+    }
+
+    /// Where this connector hops over others, and where others cross over it.
+    pub fn crossings(&self, e: &Element) -> (Vec<Pos2>, Vec<Pos2>) {
+        let key = self.ensure_lanes();
+        if self.cross_cache.borrow().0 != key {
+            let paths: Vec<(u64, Vec<Pos2>)> = self.elements.iter().filter(|e| e.kind == Kind::Arrow).map(|e| (e.id, self.arrow_path(e))).collect();
+            let mut map: HashMap<u64, (Vec<Pos2>, Vec<Pos2>)> = HashMap::new();
+            for (j, (top, tp)) in paths.iter().enumerate() {
+                for (bottom, bp) in &paths[..j] {
+                    for c in path_crossings(tp, bp) {
+                        map.entry(*top).or_default().0.push(c);
+                        map.entry(*bottom).or_default().1.push(c);
+                    }
+                }
+            }
+            *self.cross_cache.borrow_mut() = (key, map);
+        }
+        self.cross_cache.borrow().1.get(&e.id).cloned().unwrap_or_default()
+    }
+
+    /// A connector's stroke as drawn: with hops over crossings, or gaps where others cross it.
+    pub fn line_pieces(&self, e: &Element, line: Vec<Pos2>) -> Vec<Vec<Pos2>> {
+        if self.jumps == Jumps::Off {
+            return vec![line];
+        }
+        let (over, under) = self.crossings(e);
+        match self.jumps {
+            Jumps::Hop => vec![hop_line(&line, &over, 7.0)],
+            Jumps::Gap => gap_line(&line, &under, 6.0),
+            Jumps::Off => vec![line],
+        }
+    }
+
     /// Final flattened path of an arrow.
     pub fn arrow_path(&self, e: &Element) -> Vec<Pos2> {
-        let c = self.arrow_corners(e);
+        let c = if e.style.route == Route::Elbow {
+            self.ensure_lanes();
+            self.lane_cache.borrow().1.get(&e.id).cloned().unwrap_or_else(|| self.arrow_corners(e))
+        } else {
+            self.arrow_corners(e)
+        };
         let n = c.len();
         match e.style.route {
             Route::Curve if e.bend.is_some() && n >= 2 => {
@@ -640,6 +721,176 @@ impl Doc {
     pub fn arrow_dead(&self, e: &Element) -> bool {
         [e.from.id, e.to.id].iter().flatten().any(|id| self.get(*id).is_some_and(|n| n.down))
     }
+}
+
+// ---------- lanes & line jumps ----------
+
+struct LaneArrow {
+    id: u64,
+    c: Vec<Pos2>,
+    from: Option<Rect>,
+    to: Option<Rect>,
+}
+
+const LANE_GAP: f32 = 10.0;
+
+/// Spreads overlapping collinear segments of different connectors into side-by-side lanes.
+/// End segments slide along the shape side they attach to (clamped to the side).
+fn assign_lanes(arrows: &mut [LaneArrow]) {
+    // (arrow, segment, horizontal, coordinate, lo, hi)
+    let mut segs: Vec<(usize, usize, bool, f32, f32, f32)> = vec![];
+    for (ai, a) in arrows.iter().enumerate() {
+        for i in 0..a.c.len().saturating_sub(1) {
+            let (p, q) = (a.c[i], a.c[i + 1]);
+            if (p.y - q.y).abs() < 0.5 && (p.x - q.x).abs() > 1.0 {
+                segs.push((ai, i, true, p.y, p.x.min(q.x), p.x.max(q.x)));
+            } else if (p.x - q.x).abs() < 0.5 && (p.y - q.y).abs() > 1.0 {
+                segs.push((ai, i, false, p.x, p.y.min(q.y), p.y.max(q.y)));
+            }
+        }
+    }
+    // union-find over overlapping segments of different connectors
+    let mut parent: Vec<usize> = (0..segs.len()).collect();
+    fn find(p: &mut [usize], i: usize) -> usize {
+        let mut r = i;
+        while p[r] != r {
+            r = p[r];
+        }
+        p[i] = r;
+        r
+    }
+    for i in 0..segs.len() {
+        for j in i + 1..segs.len() {
+            let (a, b) = (segs[i], segs[j]);
+            if a.0 != b.0 && a.2 == b.2 && (a.3 - b.3).abs() < 3.0 && a.5.min(b.5) - a.4.max(b.4) > 8.0 {
+                let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
+                parent[ri] = rj;
+            }
+        }
+    }
+    let mut groups: HashMap<usize, Vec<usize>> = HashMap::new();
+    for i in 0..segs.len() {
+        let r = find(&mut parent, i);
+        groups.entry(r).or_default().push(i);
+    }
+    for members in groups.values() {
+        let mut members: Vec<usize> = members.clone();
+        members.sort_by_key(|i| segs[*i].0);
+        members.dedup_by_key(|i| segs[*i].0);
+        let m = members.len();
+        if m < 2 {
+            continue;
+        }
+        for (k, &si) in members.iter().enumerate() {
+            let (ai, i, horizontal, ..) = segs[si];
+            let off = (k as f32 - (m as f32 - 1.0) / 2.0) * LANE_GAP;
+            let a = &mut arrows[ai];
+            let last = a.c.len() - 1;
+            for idx in [i, i + 1] {
+                // keep attachment points on their shape's side
+                let side = if idx == 0 { a.from } else if idx == last { a.to } else { None };
+                let p = &mut a.c[idx];
+                if horizontal {
+                    p.y += off;
+                    if let Some(r) = side {
+                        p.y = p.y.clamp(r.min.y + 4.0, r.max.y - 4.0);
+                    }
+                } else {
+                    p.x += off;
+                    if let Some(r) = side {
+                        p.x = p.x.clamp(r.min.x + 4.0, r.max.x - 4.0);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn seg_intersection(a: Pos2, b: Pos2, c: Pos2, d: Pos2) -> Option<Pos2> {
+    let (r, s) = (b - a, d - c);
+    let den = r.x * s.y - r.y * s.x;
+    if den.abs() < 1e-6 {
+        return None;
+    }
+    let t = ((c - a).x * s.y - (c - a).y * s.x) / den;
+    let u = ((c - a).x * r.y - (c - a).y * r.x) / den;
+    (t > 0.0 && t < 1.0 && u > 0.0 && u < 1.0).then(|| a + r * t)
+}
+
+/// Proper crossings between two paths, ignoring the ends (where connectors meet shapes).
+pub fn path_crossings(p: &[Pos2], q: &[Pos2]) -> Vec<Pos2> {
+    let near_end = |path: &[Pos2], c: Pos2| path.first().is_some_and(|e| e.distance(c) < 16.0) || path.last().is_some_and(|e| e.distance(c) < 16.0);
+    let mut out: Vec<Pos2> = vec![];
+    for a in p.windows(2) {
+        for b in q.windows(2) {
+            if let Some(c) = seg_intersection(a[0], a[1], b[0], b[1]) {
+                if !near_end(p, c) && !near_end(q, c) && out.iter().all(|o| o.distance(c) > 4.0) {
+                    out.push(c);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The line with a small arc hop at each crossing point.
+pub fn hop_line(line: &[Pos2], at: &[Pos2], r: f32) -> Vec<Pos2> {
+    if at.is_empty() || line.len() < 2 {
+        return line.to_vec();
+    }
+    let mut out = vec![line[0]];
+    for w in line.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let len = a.distance(b);
+        if len < 1e-3 {
+            continue;
+        }
+        let dir = (b - a) / len;
+        let mut ts: Vec<f32> = at.iter().filter(|c| dist_seg(**c, a, b) < 0.75).map(|c| (*c - a).dot(dir)).filter(|t| *t > r && *t < len - r).collect();
+        ts.sort_by(|x, y| x.total_cmp(y));
+        let mut n = vec2(-dir.y, dir.x);
+        if n.y > 0.01 || (n.y.abs() <= 0.01 && n.x < 0.0) {
+            n = -n; // hop upward (or rightward on vertical lines)
+        }
+        let mut last = f32::MIN;
+        for t in ts {
+            if t - last < 2.0 * r + 2.0 {
+                continue;
+            }
+            last = t;
+            let c = a + dir * t;
+            out.extend((0..=8).map(|k| {
+                let th = std::f32::consts::PI * k as f32 / 8.0;
+                c - dir * (r * th.cos()) + n * (r * th.sin())
+            }));
+        }
+        out.push(b);
+    }
+    out
+}
+
+/// The line split into pieces with a short gap at each crossing point.
+pub fn gap_line(line: &[Pos2], at: &[Pos2], g: f32) -> Vec<Vec<Pos2>> {
+    if at.is_empty() || line.len() < 2 {
+        return vec![line.to_vec()];
+    }
+    let mut pieces = vec![vec![line[0]]];
+    for w in line.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let len = a.distance(b);
+        if len < 1e-3 {
+            continue;
+        }
+        let dir = (b - a) / len;
+        let mut ts: Vec<f32> = at.iter().filter(|c| dist_seg(**c, a, b) < 0.75).map(|c| (*c - a).dot(dir)).filter(|t| *t > g && *t < len - g).collect();
+        ts.sort_by(|x, y| x.total_cmp(y));
+        for t in ts {
+            pieces.last_mut().unwrap().push(a + dir * (t - g));
+            pieces.push(vec![a + dir * (t + g)]);
+        }
+        pieces.last_mut().unwrap().push(b);
+    }
+    pieces
 }
 
 // ---------- routing ----------
@@ -1344,6 +1595,31 @@ mod tests {
         // clicking the connector itself while at a goes a -> b
         let s = d.steps_from_picks(&[a, ab], None);
         assert_eq!((s[0].from, s[0].to, s[0].edge), (a, b, Some(ab)));
+    }
+
+    #[test]
+    fn overlapping_connectors_get_lanes_and_crossings_hop() {
+        let mut d = Doc::default();
+        // two connectors leaving the same side of `a` towards targets on the same row overlap at first
+        let a = d.add(rect_el(0., 0.));
+        let b = d.add(rect_el(400., 0.));
+        let c = d.add(rect_el(400., 300.));
+        let mut x = Element::new(Kind::Arrow, Rect::ZERO);
+        x.from = End { id: Some(a), p: Pos2::ZERO, side: Some(1) };
+        x.to.id = Some(b);
+        let mut y = Element::new(Kind::Arrow, Rect::ZERO);
+        y.from = End { id: Some(a), p: Pos2::ZERO, side: Some(1) };
+        y.to.id = Some(c);
+        let (xi, yi) = (d.add(x), d.add(y));
+        let px = d.arrow_path(d.get(xi).unwrap());
+        let py = d.arrow_path(d.get(yi).unwrap());
+        assert_ne!(px[0], py[0], "shared start is spread into lanes: {:?} vs {:?}", px[0], py[0]);
+        // a vertical connector through the middle crosses a horizontal one -> hop on the later one
+        let line = vec![pos2(0., 50.), pos2(200., 50.)];
+        let hop = hop_line(&line, &[pos2(100., 50.)], 7.0);
+        assert!(hop.iter().any(|p| p.y < 45.0), "hop rises above the line");
+        assert_eq!(gap_line(&line, &[pos2(100., 50.)], 6.0).len(), 2);
+        assert_eq!(path_crossings(&line, &[pos2(100., 0.), pos2(100., 100.)]), vec![pos2(100., 50.)]);
     }
 
     #[test]

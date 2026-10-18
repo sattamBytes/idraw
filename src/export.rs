@@ -313,20 +313,25 @@ fn arrow(o: &mut String, c: &Ctx, e: &Element) {
     let phase = c.phase * speed;
     let path = c.doc.arrow_path(e);
     let (line, heads) = arrow_geometry(&path, s, width);
-    let base = format!(r#"<polyline points="{}" fill="none" stroke-width="{width:.2}" stroke-linejoin="round" stroke-linecap="round""#, pts(&line));
-    match flow {
-        Flow::Dashes => {
-            let _ = write!(o, r#"{base} {} stroke-dasharray="{DASH} {DASH}" stroke-dashoffset="{:.2}"/>"#, paint("stroke", color), -dash_offset(phase));
+    for piece in c.doc.line_pieces(e, line) {
+        if piece.len() < 2 {
+            continue;
         }
-        _ if dashed => {
-            let _ = write!(o, r#"{base} {} stroke-dasharray="8 6"/>"#, paint("stroke", color));
-        }
-        Flow::Dots => {
-            let _ = write!(o, r#"{base} {}/>"#, paint("stroke", color.gamma_multiply(0.45)));
-        }
-        Flow::None if c.doc.sketch => outline(o, c, &line, false, color, width, false, e.id),
-        Flow::None => {
-            let _ = write!(o, r#"{base} {}/>"#, paint("stroke", color));
+        let base = format!(r#"<polyline points="{}" fill="none" stroke-width="{width:.2}" stroke-linejoin="round" stroke-linecap="round""#, pts(&piece));
+        match flow {
+            Flow::Dashes => {
+                let _ = write!(o, r#"{base} {} stroke-dasharray="{DASH} {DASH}" stroke-dashoffset="{:.2}"/>"#, paint("stroke", color), -dash_offset(phase));
+            }
+            _ if dashed => {
+                let _ = write!(o, r#"{base} {} stroke-dasharray="8 6"/>"#, paint("stroke", color));
+            }
+            Flow::Dots => {
+                let _ = write!(o, r#"{base} {}/>"#, paint("stroke", color.gamma_multiply(0.45)));
+            }
+            Flow::None if c.doc.sketch => outline(o, c, &piece, false, color, width, false, e.id),
+            Flow::None => {
+                let _ = write!(o, r#"{base} {}/>"#, paint("stroke", color));
+            }
         }
     }
     for h in heads {

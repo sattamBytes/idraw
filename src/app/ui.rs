@@ -589,6 +589,14 @@ impl App {
                             }
                             ui.label(RichText::new("or drag the label anywhere along the line").small().color(theme::muted()));
                         }
+                        section(ui, "Line crossings (all connectors)");
+                        if let Some(j) = seg(ui, self.doc.jumps, &[(Jumps::Hop, "Hop"), (Jumps::Gap, "Gap"), (Jumps::Off, "Off")]) {
+                            action = match j {
+                                Jumps::Hop => "jumps-hop",
+                                Jumps::Gap => "jumps-gap",
+                                Jumps::Off => "jumps-off",
+                            };
+                        }
                         section(ui, "Arrowheads");
                         if let Some((a, b)) = seg(ui, (s.head_start, s.head_end), &[((false, false), "None"), ((false, true), "End"), ((true, true), "Both")]) {
                             change = Some(Box::new(move |e| (e.style.head_start, e.style.head_end) = (a, b)));
@@ -754,6 +762,14 @@ impl App {
             "del" => self.delete_selected(),
             "layout" => self.auto_layout(false),
             "outage" => self.run(ctx, "failures"),
+            "jumps-hop" | "jumps-gap" | "jumps-off" => {
+                self.checkpoint();
+                self.doc.jumps = match action {
+                    "jumps-hop" => Jumps::Hop,
+                    "jumps-gap" => Jumps::Gap,
+                    _ => Jumps::Off,
+                };
+            }
             "flow-here" => {
                 self.start_record();
                 if let Some((_, nodes)) = &mut self.rec {

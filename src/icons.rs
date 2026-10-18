@@ -139,6 +139,7 @@ const GLYPHS: &[(&str, &str, &str, &str)] = &[
     ("pin", "Region", "glyph", r#"<path d="M12 21s-7-6.2-7-12a7 7 0 0 1 14 0c0 5.8-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/>"#),
     ("layers", "Zone", "glyph", r#"<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>"#),
     ("subnet", "Subnet", "glyph", r#"<rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 2.5"/><rect x="8" y="8" width="8" height="8" rx="1"/>"#),
+    ("stack", "Layers", "glyph", r#"<rect x="3" y="3.5" width="18" height="5" rx="1.5"/><rect x="3" y="9.5" width="18" height="5" rx="1.5"/><rect x="3" y="15.5" width="18" height="5" rx="1.5"/>"#),
     ("folder", "Account", "glyph", r#"<path d="M3 6a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>"#),
     // UI chrome
     ("t-select", "", "ui", r#"<path d="M5 3l14 8-6 2-3 6z"/>"#),
@@ -407,6 +408,8 @@ pub const BOUNDARIES: &[(&str, &str, &str, u32, bool)] = &[
     ("b-public", "Public subnet", "subnet", 0x16a34a, true),
     ("b-private", "Private subnet", "subnet", 0x2563eb, true),
     ("b-k8s", "Kubernetes cluster", "k8s", 0x326ce5, true),
+    ("b-system", "System", "service", 0x9333ea, false),
+    ("b-app", "Application layer", "stack", 0xea580c, true),
     ("b-dmz", "DMZ / Security zone", "shield", 0xdc2626, true),
     ("b-corp", "Corporate network", "building", 0xd97706, false),
     ("b-edge", "Edge / PoP", "globe", 0xdb2777, true),
