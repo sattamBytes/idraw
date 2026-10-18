@@ -198,12 +198,12 @@ fn element(o: &mut String, c: &Ctx, e: &Element) {
                 fill(o, c, &p, if down { tint(DOWN_RED, 0.08) } else { c.m(s.fill) }, e.id);
                 outline(o, c, &p, true, stroke, s.width, s.dashed, e.id);
             }
-            if let Some(ir) = centered_icon_rect(e) {
+            if let Some(ir) = placed_icon_rect(e) {
                 icon_svg(o, &e.icon, ir, stroke);
             }
             if !e.text.is_empty() {
                 let lines: Vec<&str> = e.text.split('\n').collect();
-                let has_icon = !e.icon.is_empty();
+                let has_icon = icon_inline(e);
                 let isz = label_icon_size(e);
                 let mut size = vec2(est_w(&e.text, s.font), lines.len() as f32 * s.font * LINE_H);
                 if has_icon {

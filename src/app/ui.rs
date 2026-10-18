@@ -135,7 +135,7 @@ fn seg<T: PartialEq + Copy>(ui: &mut Ui, cur: T, opts: &[(T, &str)]) -> Option<T
 }
 
 /// 3×3 label-position picker drawn as a tiny shape with hot spots.
-fn pos_grid(ui: &mut Ui, cur: TextPos, outside: bool) -> Option<TextPos> {
+fn pos_grid(ui: &mut Ui, salt: &str, cur: TextPos, outside: bool) -> Option<TextPos> {
     let (area, _) = ui.allocate_exact_size(vec2(PANEL_W, 92.0), Sense::hover());
     let p = ui.painter();
     let shape = Rect::from_center_size(area.center(), vec2(104.0, 56.0));
@@ -153,7 +153,7 @@ fn pos_grid(ui: &mut Ui, cur: TextPos, outside: bool) -> Option<TextPos> {
                 c.y = if fy == 0.0 { shape.min.y - 12.0 } else { shape.max.y + 12.0 };
             }
         }
-        let id = ui.id().with(("tpos", fx.to_bits(), fy.to_bits()));
+        let id = ui.id().with((salt, fx.to_bits(), fy.to_bits()));
         let r = ui.interact(Rect::from_center_size(c, vec2(18.0, 16.0)), id, Sense::click());
         let on = tp == cur;
         let grow = ui.ctx().animate_bool_with_time(id, r.hovered() || on, 0.12);
@@ -554,7 +554,7 @@ impl App {
                     }
                     if els.iter().any(|e| e.has_label_pos()) {
                         section(ui, "Label position");
-                        if let Some(tp) = pos_grid(ui, first.tpos, first.outside) {
+                        if let Some(tp) = pos_grid(ui, "label-pos", first.tpos, first.outside) {
                             change = Some(Box::new(move |e| e.tpos = tp));
                         }
                         if let Some(o) = seg(ui, first.outside, &[(false, "Inside"), (true, "Outside")]) {
@@ -733,7 +733,20 @@ impl App {
                             }
                         });
                         if !first.icon.is_empty() {
-                            ui.label(RichText::new(if first.text.trim().is_empty() { "Centered while there's no label" } else { "Sits beside the label; follows Label position" }).small().color(theme::muted()));
+                            section(ui, "Icon position");
+                            let has_text = !first.text.trim().is_empty();
+                            // with a label and no own position, the icon rides along with the label
+                            let cur = first.icon_pos.unwrap_or(if has_text { first.tpos } else { TextPos::Center });
+                            if let Some(tp) = pos_grid(ui, "icon-pos", cur, false) {
+                                change = Some(Box::new(move |e| e.icon_pos = Some(tp)));
+                            }
+                            if has_text {
+                                if let Some(with_label) = seg(ui, first.icon_pos.is_none(), &[(true, "Next to label"), (false, "On its own")]) {
+                                    // detach to a spot that doesn't sit on the label
+                                    let tp = if first.tpos == TextPos::Center { TextPos::Top } else { TextPos::Center };
+                                    change = Some(Box::new(move |e| e.icon_pos = if with_label { None } else { Some(tp) }));
+                                }
+                            }
                         }
                     }
                     if has(&[Kind::Region]) && self.sel.len() == 1 {
@@ -1556,7 +1569,7 @@ impl App {
                 let m = render::measure(ctx, &e.text, e.style.font, hand);
                 let (x, top, ax) = text_place(r, e.tpos, e.outside, m, LABEL_PAD);
                 let w = if e.outside && e.tpos.fx() != 0.5 { m.x + 60.0 } else { (r.width() - 2.0 * LABEL_PAD).max(60.0) };
-                let left = x - w * ax + if e.icon.is_empty() { 0.0 } else { label_icon_size(&e) + 6.0 };
+                let left = x - w * ax + if icon_inline(&e) { label_icon_size(&e) + 6.0 } else { 0.0 };
                 let align = if ax == 0.0 {
                     Align::Min
                 } else if ax == 1.0 {

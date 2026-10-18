@@ -291,6 +291,9 @@ pub struct Element {
     /// User-dragged point a connector must pass through (None = automatic route).
     #[serde(default)]
     pub bend: Option<Pos2>,
+    /// Where a shape's icon sits inside it; None = next to the label.
+    #[serde(default)]
+    pub icon_pos: Option<TextPos>,
 }
 
 impl Element {
@@ -341,6 +344,7 @@ impl Element {
             label_t: 0.5,
             label_off: 0.0,
             bend: None,
+            icon_pos: None,
         }
     }
 
@@ -1342,12 +1346,20 @@ pub fn label_icon_size(e: &Element) -> f32 {
     if e.kind == Kind::Region { 16.0 } else { (e.style.font * 1.25).clamp(16.0, 40.0) }
 }
 
-/// Where a plain shape's icon goes when the shape has no label: centered and fairly large.
-pub fn centered_icon_rect(e: &Element) -> Option<Rect> {
-    (e.kind != Kind::Region && !e.icon.is_empty() && e.text.trim().is_empty()).then(|| {
-        let s = (e.rect.width().min(e.rect.height()) * 0.45).clamp(18.0, 72.0);
-        Rect::from_center_size(e.rect.center(), vec2(s, s))
-    })
+/// Does this shape draw its icon inline before the label (rather than placed on its own)?
+pub fn icon_inline(e: &Element) -> bool {
+    !e.icon.is_empty() && (e.kind == Kind::Region || (e.icon_pos.is_none() && !e.text.trim().is_empty()))
+}
+
+/// Rect of a plain shape's icon when it's placed on its own (its own 3×3 position inside the
+/// shape, or centered and larger when the shape has no label).
+pub fn placed_icon_rect(e: &Element) -> Option<Rect> {
+    if e.kind == Kind::Region || e.icon.is_empty() || icon_inline(e) {
+        return None;
+    }
+    let s = if e.text.trim().is_empty() { (e.rect.width().min(e.rect.height()) * 0.45).clamp(18.0, 72.0) } else { label_icon_size(e) * 1.2 };
+    let (x, top, ax) = text_place(e.rect, e.icon_pos.unwrap_or(TextPos::Center), false, vec2(s, s), LABEL_PAD);
+    Some(Rect::from_min_size(pos2(x - s * ax, top), vec2(s, s)))
 }
 
 pub struct NodeLayout {

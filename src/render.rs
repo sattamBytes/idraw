@@ -164,7 +164,7 @@ pub fn draw_element(p: &Painter, ctx: &Context, doc: &Doc, e: &Element, v: &View
                 outline(p, v, &pts, true, stroke, s.dashed, o.sketch, e.id);
             }
             let icon_tint = |icon: &str| if icons::find(icon).is_some_and(|i| i.color) { Color32::WHITE } else { stroke_c };
-            if let Some(ir) = centered_icon_rect(e) {
+            if let Some(ir) = placed_icon_rect(e) {
                 if let Some(t) = icons.get(ctx, &e.icon) {
                     p.image(t, v.rect(ir), UV, icon_tint(&e.icon));
                 }
@@ -173,7 +173,7 @@ pub fn draw_element(p: &Painter, ctx: &Context, doc: &Doc, e: &Element, v: &View
                 let bold = e.kind == Kind::Region;
                 let lines: Vec<&str> = e.text.split('\n').collect();
                 let mut size = measure(ctx, &e.text, s.font, hand);
-                let has_icon = !e.icon.is_empty();
+                let has_icon = icon_inline(e);
                 let isz = label_icon_size(e);
                 if has_icon {
                     size.x += isz + 6.0;
