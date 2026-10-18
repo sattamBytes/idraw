@@ -56,6 +56,8 @@ fn main() -> eframe::Result {
     let opts = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("idraw")
+            // an empty icon keeps the app bundle's icon in the Dock (otherwise eframe shows its "e" logo)
+            .with_icon(std::sync::Arc::new(egui::IconData::default()))
             .with_inner_size([1440.0, 900.0])
             .with_min_inner_size([820.0, 520.0])
             // standard title bar: drags that start on the canvas or toolbar never move the window
