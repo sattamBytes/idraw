@@ -60,9 +60,6 @@ const FILLS: [Color32; 8] = [
     Color32::from_rgb(0xf1, 0xf5, 0xf9),
 ];
 
-/// Flow speed presets: (multiplier, label).
-pub(crate) const SPEEDS: [(f32, &str); 3] = [(0.3, "Slow"), (0.55, "Normal"), (1.0, "Fast")];
-
 /// (label, shortcut, action) for the command palette.
 pub(crate) const COMMANDS: &[(&str, &str, &str)] = &[
     ("Auto-layout: left → right", "⇧⌘L", "layout"),
@@ -156,7 +153,6 @@ pub struct App {
     // v0.2
     dark: bool,
     failures: bool,
-    flow_speed: f32,
     quality: Quality,
     palette: Option<Palette>,
     picker: Option<Picker>,
@@ -225,7 +221,6 @@ impl App {
             nudge: None,
             dark,
             failures: false,
-            flow_speed: st.and_then(|s| s.get_string("speed")).and_then(|v| v.parse().ok()).unwrap_or(SPEEDS[1].0),
             quality: Quality::UltraHd,
             palette: None,
             picker: None,
@@ -650,7 +645,7 @@ impl App {
             None => stem,
         };
         let Some(p) = rfd::FileDialog::new().add_filter(fmt, &[fmt]).set_file_name(format!("{stem}.{fmt}")).save_file() else { return };
-        let (doc, only, q, look) = (self.doc.clone(), self.sel.clone(), self.quality, Look { dark: self.dark, failures: self.failures, speed: self.flow_speed });
+        let (doc, only, q, look) = (self.doc.clone(), self.sel.clone(), self.quality, Look { dark: self.dark, failures: self.failures });
         let ctx2 = ctx.clone();
         let (tx, rx) = channel();
         self.export_rx = Some(rx);
@@ -1340,7 +1335,6 @@ impl eframe::App for App {
         }
         storage.set_string("dark", if self.dark { "1" } else { "0" }.into());
         storage.set_string("name", self.my_name.clone());
-        storage.set_string("speed", self.flow_speed.to_string());
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -1408,7 +1402,7 @@ impl eframe::App for App {
             let p = ui.painter_at(rect);
             let v = self.view();
             render::draw_grid(&p, rect, &v);
-            let phase = if self.playing { ((now as f32 * self.flow_speed) % LOOP_SECS) / LOOP_SECS } else { 0.0 };
+            let phase = if self.playing { (now as f32 % LOOP_SECS) / LOOP_SECS } else { 0.0 };
             let hover_comment = resp
                 .hover_pos()
                 .and_then(|h| self.doc.hit(v.s2w(h), 4.0 / self.zoom))

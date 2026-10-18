@@ -35,8 +35,6 @@ impl Quality {
 pub struct Look {
     pub dark: bool,
     pub failures: bool,
-    /// flow animation speed (1.0 = one loop per LOOP_SECS)
-    pub speed: f32,
 }
 
 struct Ctx<'a> {
@@ -491,12 +489,13 @@ fn gif_frames(frames: Vec<String>, b: Rect, q: Quality, fps: f32, path: &Path) -
 
 /// Animated GIF of one seamless flow loop (single frame if nothing animates).
 pub fn write_gif(doc: &Doc, only: &[u64], q: Quality, look: Look, path: &Path) -> Result<(), String> {
-    let animated = doc.elements.iter().any(|e| e.kind == Kind::Arrow && (e.style.flow != Flow::None || e.failover) && (only.is_empty() || only.contains(&e.id)));
+    let moving: Vec<u32> = doc.elements.iter().filter(|e| e.kind == Kind::Arrow && (e.style.flow != Flow::None || e.failover) && (only.is_empty() || only.contains(&e.id))).map(edge_speed).collect();
     const FPS: f32 = 25.0;
-    let speed = if look.speed > 0.0 { look.speed } else { 1.0 };
-    let n = if animated { (LOOP_SECS / speed * FPS).round().max(2.0) as usize } else { 1 };
+    // one period of the combined animation: every connector is back where it started
+    let frac = loop_fraction(moving.iter().copied());
+    let n = if moving.is_empty() { 1 } else { (LOOP_SECS * frac * FPS).round().max(2.0) as usize };
     let (_, b) = svg(doc, only, 0.0, look).ok_or("nothing to export")?;
-    let frames = (0..n).map(|i| svg(doc, only, i as f32 / n as f32, look).unwrap().0).collect();
+    let frames = (0..n).map(|i| svg(doc, only, i as f32 / n as f32 * frac, look).unwrap().0).collect();
     gif_frames(frames, b, q, FPS, path)
 }
 
@@ -542,7 +541,7 @@ mod tests {
         let w = u32::from_be_bytes(img[16..20].try_into().unwrap());
         assert_eq!(w, 3840, "4K export should be 3840px wide");
         write_gif(&d, &[], Quality::Standard, Look::default(), &dir.join("idraw-test.gif")).unwrap();
-        write_scenario_gif(&d, &d.scenarios[0], Quality::Standard, Look { dark: true, failures: false, speed: 1.0 }, &dir.join("idraw-scn.gif")).unwrap();
+        write_scenario_gif(&d, &d.scenarios[0], Quality::Standard, Look { dark: true, failures: false }, &dir.join("idraw-scn.gif")).unwrap();
         assert!(std::fs::metadata(dir.join("idraw-scn.gif")).unwrap().len() > 1000);
     }
 
@@ -550,7 +549,7 @@ mod tests {
     fn sketch_and_dark_svg_render() {
         let mut d = sample();
         d.sketch = true;
-        let (s, _) = svg(&d, &[], 0.0, Look { dark: true, failures: true, speed: 1.0 }).unwrap();
+        let (s, _) = svg(&d, &[], 0.0, Look { dark: true, failures: true }).unwrap();
         resvg::usvg::Tree::from_str(&s, &Default::default()).unwrap();
     }
 }

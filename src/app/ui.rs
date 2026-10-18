@@ -456,6 +456,12 @@ impl App {
                         if let Some(f) = seg(ui, s.flow, &[(Flow::None, "Off"), (Flow::Dots, "Packets"), (Flow::Dashes, "Dashes")]) {
                             change = Some(Box::new(move |e| e.style.flow = f));
                         }
+                        if s.flow != Flow::None || first.failover {
+                            section(ui, "Speed");
+                            if let Some(sp) = seg(ui, first.speed, &[(Speed::Slow, "Slow"), (Speed::Normal, "Normal"), (Speed::Fast, "Fast")]) {
+                                change = Some(Box::new(move |e| e.speed = sp));
+                            }
+                        }
                         let mut fo = first.failover;
                         if ui.checkbox(&mut fo, "Backup path").changed() {
                             change = Some(Box::new(move |e| e.failover = fo));
@@ -463,7 +469,7 @@ impl App {
                         ui.label(RichText::new("Stays faint normally. Takes over when you simulate an outage (F).").small().color(theme::muted()));
                         let hint = match traffic(&first.text) {
                             Some(r) => format!("Traffic {} rps → thicker, faster", short_num(r)),
-                            None => "Tip: label it \"1.2k rps\" to scale width & speed".into(),
+                            None => "Tip: label it \"1.2k rps\" to make it thicker and faster".into(),
                         };
                         ui.label(RichText::new(hint).small().color(theme::muted()));
                     }
@@ -628,10 +634,6 @@ impl App {
                         let (icon, tip) = if self.playing { ("pause", "Pause flow animation") } else { ("play", "Play flow animation") };
                         if icon_button(ui, &mut self.icons, icon, self.playing, tip).clicked() {
                             self.playing = !self.playing;
-                        }
-                        let i = SPEEDS.iter().position(|s| (s.0 - self.flow_speed).abs() < 0.01).unwrap_or(1);
-                        if ui.add(egui::Button::new(RichText::new(SPEEDS[i].1).size(12.0).color(theme::text())).frame(false).min_size(vec2(54.0, 34.0))).on_hover_text("Animation speed: click to change").clicked() {
-                            self.flow_speed = SPEEDS[(i + 1) % SPEEDS.len()].0;
                         }
                     }
                     if icon_button(ui, &mut self.icons, "users", self.collab.is_some(), "Collaborate live").clicked() {

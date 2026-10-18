@@ -27,6 +27,25 @@ pub enum Route {
     Curve,
 }
 
+/// Packet speed of a connector. Whole multiples of each other so GIFs loop seamlessly.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum Speed {
+    Slow,
+    #[default]
+    Normal,
+    Fast,
+}
+
+impl Speed {
+    pub fn mult(self) -> u32 {
+        match self {
+            Speed::Slow => 1,
+            Speed::Normal => 2,
+            Speed::Fast => 4,
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Flow {
     None,
@@ -217,6 +236,8 @@ pub struct Element {
     pub notes: String,
     #[serde(default)]
     pub show_notes: bool,
+    #[serde(default)]
+    pub speed: Speed,
 }
 
 impl Element {
@@ -263,6 +284,7 @@ impl Element {
             key: String::new(),
             notes: String::new(),
             show_notes: false,
+            speed: Speed::Normal,
         }
     }
 
@@ -764,20 +786,31 @@ pub fn traffic(label: &str) -> Option<f32> {
     None
 }
 
-/// (stroke width, packet speed multiplier) for an arrow, scaled by labelled traffic.
-pub fn edge_weight(e: &Element) -> (f32, f32) {
-    match traffic(&e.text) {
-        Some(rps) => {
-            let l = rps.max(1.0).log10();
-            // speed stays an integer multiple so GIF loops remain seamless
-            (e.style.width * (1.0 + (l - 1.0).clamp(0.0, 4.0) * 0.35), if rps >= 1000.0 { 2.0 } else { 1.0 })
-        }
-        None => (e.style.width, 1.0),
-    }
+/// Integer packet-speed multiple of an arrow: its speed setting, doubled for heavy traffic.
+pub fn edge_speed(e: &Element) -> u32 {
+    e.speed.mult() * if traffic(&e.text).is_some_and(|r| r >= 1000.0) { 2 } else { 1 }
 }
 
-/// Loop length for flow animation (GIF loops seamlessly at this period).
-pub const LOOP_SECS: f32 = 1.2;
+/// (stroke width, packet speed multiplier) for an arrow, scaled by labelled traffic.
+pub fn edge_weight(e: &Element) -> (f32, f32) {
+    let w = match traffic(&e.text) {
+        Some(rps) => e.style.width * (1.0 + (rps.max(1.0).log10() - 1.0).clamp(0.0, 4.0) * 0.35),
+        None => e.style.width,
+    };
+    (w, edge_speed(e) as f32)
+}
+
+fn gcd(a: u32, b: u32) -> u32 {
+    if b == 0 { a } else { gcd(b, a % b) }
+}
+
+/// Shortest loop (in units of LOOP_SECS) after which every given speed repeats.
+pub fn loop_fraction(speeds: impl Iterator<Item = u32>) -> f32 {
+    1.0 / speeds.fold(0, gcd).max(1) as f32
+}
+
+/// Base loop: the slowest speed travels one dot spacing in this time.
+pub const LOOP_SECS: f32 = 4.8;
 pub const DOT_SPACING: f32 = 60.0;
 pub const DASH: f32 = 8.0;
 
@@ -1117,6 +1150,14 @@ mod tests {
         assert_eq!((x, a), (110., 0.0));
         let (_, top, _) = text_place(r, TextPos::Bottom, true, s, 10.);
         assert!(top > 60.);
+    }
+
+    #[test]
+    fn mixed_speeds_share_one_loop() {
+        // Normal (2) + Fast (4) repeat every half base loop; Slow (1) forces the full loop
+        assert_eq!(loop_fraction([2, 4].into_iter()), 0.5);
+        assert_eq!(loop_fraction([1, 4, 2].into_iter()), 1.0);
+        assert_eq!(loop_fraction([4].into_iter()), 0.25);
     }
 
     #[test]
