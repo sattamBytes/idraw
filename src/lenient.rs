@@ -100,11 +100,10 @@ fn element(raw: &Map<String, Value>, id: u64, keys: &HashMap<String, u64>, warn:
 
     // start from what the app would create, then lay the given fields over it
     let (dw, dh) = match kind {
-        Kind::Node => (176.0, 56.0),
+        Kind::Node | Kind::Rect | Kind::Ellipse | Kind::Diamond => (NODE_SIZE.x, NODE_SIZE.y),
         Kind::Region => (480.0, 320.0),
         Kind::Sticky => (180.0, 140.0),
         Kind::Text => (120.0, 24.0),
-        Kind::Diamond => (140.0, 100.0),
         _ => (160.0, 80.0),
     };
     let rect = match raw.get("rect") {

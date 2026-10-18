@@ -612,7 +612,7 @@ impl App {
             }
             return;
         }
-        let r = Rect::from_center_size(p, vec2(176.0, 56.0) * self.zoom);
+        let r = Rect::from_center_size(p, NODE_SIZE * self.zoom);
         painter.rect(r, CornerRadius::same(12), fill, st, StrokeKind::Inside);
         if let (Some(t), Some(it)) = (self.icons.get(ctx, icon), icons::find(icon)) {
             painter.image(t, Rect::from_center_size(r.center(), vec2(24.0, 24.0)), render::UV, if it.color { Color32::WHITE } else { icons::accent(it.cat) });

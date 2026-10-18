@@ -1230,9 +1230,7 @@ impl App {
 
     fn default_size(tool: Tool) -> Vec2 {
         match tool {
-            Tool::Rect => vec2(140.0, 80.0),
-            Tool::Ellipse => vec2(120.0, 80.0),
-            Tool::Diamond => vec2(120.0, 90.0),
+            Tool::Rect | Tool::Ellipse | Tool::Diamond => NODE_SIZE,
             Tool::Sticky => vec2(200.0, 160.0),
             _ => vec2(420.0, 280.0),
         }

@@ -394,7 +394,7 @@ impl Element {
     }
 
     pub fn node(icon: &str, center: Pos2) -> Self {
-        let mut e = Element::new(Kind::Node, Rect::from_center_size(center, vec2(176.0, 56.0)));
+        let mut e = Element::new(Kind::Node, Rect::from_center_size(center, NODE_SIZE));
         e.icon = icon.to_string();
         match crate::icons::find(icon) {
             Some(i) => {
@@ -1606,6 +1606,8 @@ fn node_below_height(e: &Element) -> f32 {
     bottom - e.rect.max.y
 }
 
+/// Component card size; plain shapes start at the same size so they line up.
+pub const NODE_SIZE: Vec2 = vec2(176.0, 56.0);
 pub const NODE_TITLE: f32 = 14.0;
 pub const NODE_SUB: f32 = 11.5;
 
