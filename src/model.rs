@@ -490,8 +490,10 @@ impl Doc {
             Kind::Pen => dist_to_path(&e.points, p) <= tol + e.style.width,
             Kind::Arrow => dist_to_path(&self.arrow_path(e), p) <= tol + e.style.width,
             Kind::Region => {
+                // grab band around the edge (wider than a line) or the title strip
                 let r = e.rect;
-                r.expand(tol).contains(p) && (!r.shrink(tol).contains(p) || p.y < r.min.y + 28.0)
+                let band = tol.max(1.0) * 2.0;
+                r.expand(band).contains(p) && (!r.shrink(band).contains(p) || p.y < r.min.y + 32.0)
             }
             Kind::Comment => e.rect.min.distance(p) < 14.0 + tol,
             _ => e.rect.expand(tol).contains(p),

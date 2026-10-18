@@ -927,11 +927,9 @@ impl App {
                 return resize(i);
             }
         }
-        match self.doc.hit(self.view().s2w(h), 6.0 / self.zoom).and_then(|id| self.doc.get(id)) {
-            Some(e) if e.kind == Kind::Arrow && e.from.id.is_none() && e.to.id.is_none() => C::Move,
-            Some(_) => C::Move,
-            None => C::Default,
-        }
+        let w = self.view().s2w(h);
+        let inside_selected_region = self.sel.iter().any(|id| self.doc.get(*id).is_some_and(|e| e.kind == Kind::Region && e.rect.contains(w)));
+        if self.doc.hit(w, 6.0 / self.zoom).is_some() || inside_selected_region { C::Move } else { C::Default }
     }
 
     /// Shape (and side, if a side dot is under the pointer) a connector end would attach to.
@@ -1033,6 +1031,8 @@ impl App {
             self.drag = Drag::Bend(id);
             return;
         }
+        // a selected boundary can be dragged from anywhere inside it
+        let hit = hit.or_else(|| self.sel.iter().rev().copied().find(|id| self.doc.get(*id).is_some_and(|e| e.kind == Kind::Region && e.rect.contains(w))));
         if let Some(id) = hit {
             if !self.sel.contains(&id) {
                 if !shift {
@@ -1112,6 +1112,8 @@ impl App {
         let v = self.view();
         let (mods, space, scroll, zd, hover) = ctx.input(|i| (i.modifiers, i.key_down(Key::Space), i.smooth_scroll_delta, i.zoom_delta(), i.pointer.hover_pos()));
         let space = space && !ctx.wants_keyboard_input();
+        // panning by drag only with Space held or the middle button (two-finger scroll always pans)
+        let pan_drag = resp.dragged_by(PointerButton::Middle) || (resp.dragged() && space);
         if resp.hovered() {
             self.offset += scroll;
             if zd != 1.0 {
@@ -1153,36 +1155,35 @@ impl App {
                     }
                 }
             }
-            if resp.dragged() {
+            if pan_drag {
                 self.offset += resp.drag_delta();
             }
             return;
         }
         if presenting {
-            if resp.dragged() {
+            if pan_drag {
                 self.offset += resp.drag_delta();
             }
             return;
         }
         // connector started by a click: it follows the mouse; the next click places it
         if let Some((id, src)) = self.pending_arrow {
-            let w = v.s2w(hover.unwrap_or_default());
+            let sp = ctx.input(|i| i.pointer.latest_pos()).or(hover).unwrap_or_default();
+            let w = v.s2w(sp);
             let (t, side) = self.drop_at(w, Some(src));
             self.drop_target = t;
             self.drop_side = side;
             if let Some(e) = self.doc.get_mut(id) {
                 e.to = End { id: t, p: w, side };
             }
-            if resp.clicked() || resp.drag_started() {
+            // place on click, or on release if you pressed and dragged to the target
+            if resp.clicked() || resp.drag_stopped() {
                 self.pending_arrow = None;
                 self.drop_target = None;
                 self.drop_side = None;
                 if t.is_none() {
-                    self.open_picker(hover.unwrap_or_default(), Some((id, src)));
+                    self.open_picker(sp, Some((id, src)));
                 }
-            }
-            if resp.dragged() {
-                self.offset += resp.drag_delta();
             }
             return;
         }
@@ -1197,7 +1198,7 @@ impl App {
                     }
                 }
             }
-            if resp.dragged() {
+            if pan_drag {
                 self.offset += resp.drag_delta();
             }
             return;
@@ -1492,6 +1493,13 @@ impl App {
         let sel_stroke = Stroke::new(1.25, theme::INDIGO);
         for g in &self.guides {
             p.line_segment([v.w2s(g[0]), v.w2s(g[1])], Stroke::new(1.0, theme::GUIDE));
+        }
+        // boundaries are grabbed by their edge / title: show it when the pointer is there
+        if let (Drag::None, Tool::Select, Some(h)) = (&self.drag, self.tool, p.ctx().input(|i| i.pointer.hover_pos())) {
+            if let Some(e) = self.doc.hit(v.s2w(h), 6.0 / self.zoom).and_then(|id| self.doc.get(id)).filter(|e| e.kind == Kind::Region && !self.sel.contains(&e.id)) {
+                let r = v.rect(e.rect);
+                p.rect_stroke(r, CornerRadius::same((16.0 * self.zoom).min(255.0) as u8), Stroke::new(2.5, e.style.stroke.gamma_multiply(0.8)), StrokeKind::Middle);
+            }
         }
         if let Some(t) = self.drop_target.and_then(|id| self.doc.get(id)) {
             let r = v.rect(t.rect).expand(4.0);
