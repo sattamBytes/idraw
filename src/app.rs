@@ -528,9 +528,9 @@ impl App {
             return;
         }
         self.checkpoint();
-        // regions: just swap the header icon
+        // regions and plain shapes: just set the icon (it takes the shape's own color)
         for id in self.sel.clone() {
-            if let Some(e) = self.doc.get_mut(id).filter(|e| e.kind == Kind::Region) {
+            if let Some(e) = self.doc.get_mut(id).filter(|e| matches!(e.kind, Kind::Region | Kind::Rect | Kind::Ellipse | Kind::Diamond | Kind::Sticky)) {
                 e.icon = icon.to_string();
             }
         }

@@ -198,18 +198,22 @@ fn element(o: &mut String, c: &Ctx, e: &Element) {
                 fill(o, c, &p, if down { tint(DOWN_RED, 0.08) } else { c.m(s.fill) }, e.id);
                 outline(o, c, &p, true, stroke, s.width, s.dashed, e.id);
             }
+            if let Some(ir) = centered_icon_rect(e) {
+                icon_svg(o, &e.icon, ir, stroke);
+            }
             if !e.text.is_empty() {
                 let lines: Vec<&str> = e.text.split('\n').collect();
-                let has_icon = e.kind == Kind::Region && !e.icon.is_empty();
+                let has_icon = !e.icon.is_empty();
+                let isz = label_icon_size(e);
                 let mut size = vec2(est_w(&e.text, s.font), lines.len() as f32 * s.font * LINE_H);
                 if has_icon {
-                    size.x += 22.0;
+                    size.x += isz + 6.0;
                 }
                 let (mut x, top, ax) = text_place(r, e.tpos, e.outside, size, LABEL_PAD);
                 if has_icon {
                     let left = x - size.x * ax;
-                    icon_svg(o, &e.icon, Rect::from_min_size(pos2(left, top + (s.font * LINE_H - 16.0) / 2.0), vec2(16.0, 16.0)), stroke);
-                    x += 22.0 * (1.0 - ax);
+                    icon_svg(o, &e.icon, Rect::from_min_size(pos2(left, top + (s.font * LINE_H - isz) / 2.0), vec2(isz, isz)), stroke);
+                    x += (isz + 6.0) * (1.0 - ax);
                 }
                 let color = if e.kind == Kind::Sticky { c.m(INK) } else { stroke };
                 text(o, c.font(), &lines, x, top, s.font, e.kind == Kind::Region, color, ax);

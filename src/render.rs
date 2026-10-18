@@ -163,13 +163,20 @@ pub fn draw_element(p: &Painter, ctx: &Context, doc: &Doc, e: &Element, v: &View
                 fill(p, v, &pts, if down { tint(DOWN_RED, 0.08) } else { m(s.fill) }, o.sketch, e.id);
                 outline(p, v, &pts, true, stroke, s.dashed, o.sketch, e.id);
             }
+            let icon_tint = |icon: &str| if icons::find(icon).is_some_and(|i| i.color) { Color32::WHITE } else { stroke_c };
+            if let Some(ir) = centered_icon_rect(e) {
+                if let Some(t) = icons.get(ctx, &e.icon) {
+                    p.image(t, v.rect(ir), UV, icon_tint(&e.icon));
+                }
+            }
             if !hide && !e.text.is_empty() {
                 let bold = e.kind == Kind::Region;
                 let lines: Vec<&str> = e.text.split('\n').collect();
                 let mut size = measure(ctx, &e.text, s.font, hand);
-                let has_icon = e.kind == Kind::Region && !e.icon.is_empty();
+                let has_icon = !e.icon.is_empty();
+                let isz = label_icon_size(e);
                 if has_icon {
-                    size.x += 22.0;
+                    size.x += isz + 6.0;
                 }
                 let (x, top, ax) = text_place(r, e.tpos, e.outside, size, LABEL_PAD);
                 // glide labels between positions
@@ -179,11 +186,11 @@ pub fn draw_element(p: &Painter, ctx: &Context, doc: &Doc, e: &Element, v: &View
                 let color = if e.kind == Kind::Sticky { m(INK) } else { stroke_c };
                 if has_icon {
                     let left = x - size.x * ax;
-                    let ir = Rect::from_min_size(pos2(left, top + (s.font * LINE_H - 16.0) / 2.0), vec2(16.0, 16.0));
+                    let ir = Rect::from_min_size(pos2(left, top + (s.font * LINE_H - isz) / 2.0), vec2(isz, isz));
                     if let Some(t) = icons.get(ctx, &e.icon) {
-                        p.image(t, v.rect(ir), UV, stroke_c);
+                        p.image(t, v.rect(ir), UV, icon_tint(&e.icon));
                     }
-                    x += 22.0 * (1.0 - ax);
+                    x += (isz + 6.0) * (1.0 - ax);
                 }
                 text_lines(p, v, &lines, x, top, s.font, bold, color, ax, hand);
             }

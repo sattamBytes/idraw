@@ -722,6 +722,20 @@ impl App {
                             action = "icon";
                         }
                     }
+                    if has(&[Kind::Rect, Kind::Ellipse, Kind::Diamond, Kind::Sticky]) && self.sel.len() == 1 {
+                        section(ui, "Icon");
+                        ui.horizontal(|ui| {
+                            if ui.button(if first.icon.is_empty() { "Add icon…" } else { "Change icon…" }).clicked() {
+                                action = "icon";
+                            }
+                            if !first.icon.is_empty() && ui.button("Remove").clicked() {
+                                change = Some(Box::new(|e| e.icon.clear()));
+                            }
+                        });
+                        if !first.icon.is_empty() {
+                            ui.label(RichText::new(if first.text.trim().is_empty() { "Centered while there's no label" } else { "Sits beside the label; follows Label position" }).small().color(theme::muted()));
+                        }
+                    }
                     if has(&[Kind::Region]) && self.sel.len() == 1 {
                         section(ui, "Header icon");
                         ui.horizontal(|ui| {
@@ -1138,9 +1152,11 @@ impl App {
         item(ui, "Delete", "⌫", "del");
         ui.separator();
         item(ui, "Wrap in boundary", "⌘G", "group");
-        let one_node = self.sel.len() == 1 && self.doc.get(self.sel[0]).is_some_and(|e| e.kind == Kind::Node);
-        if one_node {
-            item(ui, "Change icon…", "", "icon");
+        let one = if self.sel.len() == 1 { self.doc.get(self.sel[0]).map(|e| (e.kind, e.icon.is_empty())) } else { None };
+        match one {
+            Some((Kind::Node, _)) => item(ui, "Change icon…", "", "icon"),
+            Some((Kind::Rect | Kind::Ellipse | Kind::Diamond | Kind::Sticky | Kind::Region, empty)) => item(ui, if empty { "Add icon…" } else { "Change icon…" }, "", "icon"),
+            _ => {}
         }
         if self.sel.len() == 1 && self.doc.get(self.sel[0]).is_some_and(|e| e.bindable()) {
             item(ui, "Start a flow from here", "", "flow-sel");
@@ -1540,7 +1556,7 @@ impl App {
                 let m = render::measure(ctx, &e.text, e.style.font, hand);
                 let (x, top, ax) = text_place(r, e.tpos, e.outside, m, LABEL_PAD);
                 let w = if e.outside && e.tpos.fx() != 0.5 { m.x + 60.0 } else { (r.width() - 2.0 * LABEL_PAD).max(60.0) };
-                let left = x - w * ax + if e.kind == Kind::Region && !e.icon.is_empty() { 22.0 } else { 0.0 };
+                let left = x - w * ax + if e.icon.is_empty() { 0.0 } else { label_icon_size(&e) + 6.0 };
                 let align = if ax == 0.0 {
                     Align::Min
                 } else if ax == 1.0 {

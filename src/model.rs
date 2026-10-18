@@ -1337,6 +1337,19 @@ pub fn text_place(r: Rect, pos: TextPos, outside: bool, size: Vec2, pad: f32) ->
     (x, top, ax)
 }
 
+/// Size of the icon drawn inline before a shape's / region's label.
+pub fn label_icon_size(e: &Element) -> f32 {
+    if e.kind == Kind::Region { 16.0 } else { (e.style.font * 1.25).clamp(16.0, 40.0) }
+}
+
+/// Where a plain shape's icon goes when the shape has no label: centered and fairly large.
+pub fn centered_icon_rect(e: &Element) -> Option<Rect> {
+    (e.kind != Kind::Region && !e.icon.is_empty() && e.text.trim().is_empty()).then(|| {
+        let s = (e.rect.width().min(e.rect.height()) * 0.45).clamp(18.0, 72.0);
+        Rect::from_center_size(e.rect.center(), vec2(s, s))
+    })
+}
+
 pub struct NodeLayout {
     pub tile: Rect,
     pub icon: Rect,
