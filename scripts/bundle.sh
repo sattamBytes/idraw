@@ -81,4 +81,8 @@ if [[ $INSTALL == 1 ]]; then
   rm -rf "$HOME/Applications/idraw.app"
   cp -R "$APP" "$HOME/Applications/"
   echo "Installed to ~/Applications/idraw.app"
+  # command line (idraw render / check / icons) for scripts and AI agents
+  mkdir -p "$HOME/.local/bin"
+  ln -sf "$HOME/Applications/idraw.app/Contents/MacOS/idraw" "$HOME/.local/bin/idraw"
+  echo "CLI linked at ~/.local/bin/idraw"
 fi

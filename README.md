@@ -44,6 +44,20 @@ scripts/bundle.sh --install   # builds idraw.app into ~/Applications
 
 <p align="center"><img src="docs/hero.png" alt="Hybrid-cloud system design diagram made in idraw" width="820"></p>
 
+## For AI agents and scripts
+
+`.idraw` files are plain JSON that's easy to write by hand: string ids, `"from": "api"` connectors, `#hex` colours, boundary presets, and defaults for everything else. The `idraw` command renders and checks them, so an agent can draw, look at the picture and fix it:
+
+```bash
+idraw render diagram.idraw         # → diagram.png  (-o out.svg | out.gif, --dark, --4k)
+idraw check diagram.idraw          # bad ids, unknown icons, overlaps, text that won't fit
+idraw icons kafka                  # find icon ids
+```
+
+**Claude Code skill:** copy [`skills/idraw`](skills/idraw) to `~/.claude/skills/idraw` and ask Claude to "draw an idraw diagram of …". The skill teaches the format, layouts that read well and a render → look → refine loop. See [`skills/idraw/reference.md`](skills/idraw/reference.md) for every field.
+
+<p align="center"><img src="skills/idraw/examples/url-shortener.png" alt="URL shortener diagram written by an agent with the idraw skill" width="820"></p>
+
 ## Features
 
 **Draw**

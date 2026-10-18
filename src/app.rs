@@ -1926,7 +1926,7 @@ impl eframe::App for App {
 // ---------- helpers ----------
 
 fn load(p: &std::path::Path) -> Result<Doc, String> {
-    serde_json::from_str(&std::fs::read_to_string(p).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+    crate::lenient::parse(&std::fs::read_to_string(p).map_err(|e| e.to_string())?).map(|(d, _)| d)
 }
 
 fn render_bounds(els: &[Element]) -> Rect {

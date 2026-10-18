@@ -1,0 +1,32 @@
+{
+  "elements": [
+    { "kind": "text", "text": "How a short link becomes a redirect", "x": 40, "y": 20, "font": "xl", "face": "serif", "stroke": "#1f2937" },
+    { "kind": "text", "text": "99% of clicks never touch the database — the cache answers in < 5 ms", "x": 40, "y": 72, "font": "m", "stroke": "#64748b" },
+
+    { "kind": "region", "preset": "edge", "title": "Edge", "x": 300, "y": 140, "w": 260, "h": 360 },
+    { "kind": "region", "preset": "vpc", "title": "Shortener service · us-east-1", "x": 600, "y": 140, "w": 660, "h": 360 },
+
+    { "kind": "node", "id": "user", "icon": "user", "title": "Someone clicks", "subtitle": "sho.rt/x7Kp", "x": 40, "y": 220 },
+    { "kind": "node", "id": "cdn", "icon": "cdn", "title": "CDN", "subtitle": "caches 301s", "x": 340, "y": 220 },
+    { "kind": "node", "id": "api", "icon": "gateway", "title": "Redirect API", "subtitle": "Rust · stateless", "x": 640, "y": 220, "replicas": 3 },
+    { "kind": "node", "id": "cache", "icon": "oss-redis", "title": "Redis", "subtitle": "hot links", "x": 1040, "y": 220 },
+    { "kind": "node", "id": "db", "icon": "oss-postgres", "title": "Postgres", "subtitle": "all links", "x": 1040, "y": 400 },
+    { "kind": "node", "id": "stats", "icon": "oss-kafka", "title": "Click stream", "subtitle": "Kafka · analytics", "x": 640, "y": 400 },
+
+    { "kind": "edge", "id": "e1", "from": "user", "to": "cdn", "text": "12k rps", "flow": "comet" },
+    { "kind": "edge", "id": "e2", "from": "cdn", "to": "api", "text": "cache miss", "flow": "comet", "stroke": "#2563eb" },
+    { "kind": "edge", "id": "e3", "from": {"id": "api", "side": "right"}, "to": {"id": "cache", "side": "left"}, "text": "GET x7Kp", "flow": "signal", "stroke": "#0f766e" },
+    { "kind": "edge", "id": "e4", "from": {"id": "api", "side": "right"}, "to": {"id": "db", "side": "left"}, "text": "on miss", "label_t": 0.75, "pattern": "dotted", "stroke": "#64748b" },
+    { "kind": "edge", "id": "e5", "from": {"id": "api", "side": "bottom"}, "to": {"id": "stats", "side": "top"}, "text": "async", "pattern": "dash_dot", "stroke": "#c2410c", "flow": "dots" },
+
+    { "kind": "sticky", "text": "301 = browsers\nremember it too", "x": 340, "y": 360, "w": 180, "h": 100, "face": "hand" }
+  ],
+  "scenarios": [
+    { "name": "First click on a fresh link", "steps": [
+      { "from": "user", "to": "cdn", "edge": "e1", "caption": "GET sho.rt/x7Kp" },
+      { "from": "cdn", "to": "api", "edge": "e2", "caption": "not cached yet" },
+      { "from": "api", "to": "cache", "edge": "e3", "caption": "Redis miss" },
+      { "from": "api", "to": "db", "edge": "e4", "caption": "read from Postgres, warm Redis" }
+    ] }
+  ]
+}

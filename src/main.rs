@@ -1,10 +1,12 @@
 mod app;
+mod cli;
 mod code;
 mod collab;
 mod export;
 mod icons;
 mod import;
 mod layout;
+mod lenient;
 mod model;
 mod render;
 mod theme;
@@ -46,6 +48,9 @@ pub fn setup_fonts(ctx: &egui::Context) {
 }
 
 fn main() -> eframe::Result {
+    if let Some(code) = cli::run() {
+        std::process::exit(code);
+    }
     let opts = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("idraw")
