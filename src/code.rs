@@ -3,7 +3,7 @@
 //! ```text
 //! Users -> API Gateway -> Orders service
 //! Orders service -> Postgres : SQL          label after a colon
-//! Orders service => Kafka                   => packets  ~> dashes  *> comet  >> signal
+//! Orders service => Kafka                   => stream  >> request/reply  *> async  ~> dashes
 //! Users --> Backup                          --> dashed  <-> both ways
 //! Cache                                     a component on its own
 //! Payments [aws-lambda] (card processing)   optional [icon] and (subtitle)
@@ -58,8 +58,8 @@ fn op_of(e: &Element) -> &'static str {
     match (e.style.flow, e.style.dashed, e.style.head_start && e.style.head_end) {
         (Flow::Dots, _, _) => "=>",
         (Flow::Dashes, _, _) => "~>",
-        (Flow::Comet, _, _) => "*>",
-        (Flow::Signal, _, _) => ">>",
+        (Flow::Async, _, _) => "*>",
+        (Flow::Request, _, _) => ">>",
         (_, _, true) => "<->",
         (_, true, _) => "-->",
         _ => "->",
@@ -332,8 +332,8 @@ pub fn apply(doc: &mut Doc, src: &str) -> Result<(), String> {
         s.flow = match ed.op {
             "=>" => Flow::Dots,
             "~>" => Flow::Dashes,
-            "*>" => Flow::Comet,
-            ">>" => Flow::Signal,
+            "*>" => Flow::Async,
+            ">>" => Flow::Request,
             _ => Flow::None,
         };
         s.dashed = ed.op == "-->";

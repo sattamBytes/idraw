@@ -60,12 +60,42 @@ pub enum Jumps {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Flow {
     None,
+    /// steady stream of packets
+    #[serde(alias = "Comet")]
     Dots,
+    /// marching dashes
     Dashes,
-    /// glowing streaks with fading tails
-    Comet,
-    /// the line lights up from source to target, then fades
-    Signal,
+    /// synchronous call: the request goes out, the caller waits, a hollow reply comes back (UML call + reply)
+    #[serde(alias = "Signal")]
+    Request,
+    /// fire-and-forget messages, several in flight, no reply (UML asynchronous message)
+    Async,
+    /// bursts of packets with pauses (batch jobs, ETL, bulk sync)
+    Batch,
+    /// a small ping now and then with an "ok" ripple at the far end (health checks, keep-alives)
+    Heartbeat,
+    /// some requests fail part-way and fade out (timeouts, rate limiting, lost messages)
+    Errors,
+    /// connectors leaving the same component take turns (load balancer, competing consumers)
+    Balanced,
+    /// every connector leaving the same component gets a copy at once (pub/sub, broadcast)
+    Fanout,
+}
+
+impl Flow {
+    /// Picker entries: (flow, label, what it means).
+    pub const MENU: [(Flow, &'static str, &'static str); 10] = [
+        (Flow::None, "Off", "No animation"),
+        (Flow::Request, "Request → reply", "Synchronous call: the caller waits for the answer, which comes back as a hollow dot"),
+        (Flow::Async, "Async message", "Fire and forget: messages fly one way, several at a time, no reply"),
+        (Flow::Dots, "Stream", "A steady stream of data (events, logs, video, replication)"),
+        (Flow::Batch, "Batch", "Bursts of records with pauses in between (jobs, ETL, bulk sync)"),
+        (Flow::Fanout, "Fan-out", "Pub/sub: every connector leaving the same component gets a copy at the same moment"),
+        (Flow::Balanced, "Load balanced", "Round robin: connectors leaving the same component take turns"),
+        (Flow::Heartbeat, "Heartbeat", "Health check / keep-alive: a small ping, then an \"ok\" ripple"),
+        (Flow::Errors, "Some fail", "Some requests fail part-way: timeouts, throttling, lost messages"),
+        (Flow::Dashes, "Marching", "Classic marching dashes, no particular meaning"),
+    ];
 }
 
 /// Where a label sits relative to its shape (3x3 grid).
@@ -1297,71 +1327,96 @@ pub fn flow_dots(path: &[Pos2], phase: f32) -> Vec<Pos2> {
     out
 }
 
-pub const COMET_SPACING: f32 = 240.0;
-pub const COMET_TAIL: f32 = 130.0;
-
-/// The stretch of a path between distances `a` and `b`.
-pub fn sub_path(path: &[Pos2], a: f32, b: f32) -> Vec<Pos2> {
-    let mut out = vec![point_at(path, a)];
-    let mut acc = 0.0;
-    for w in path.windows(2) {
-        acc += w[0].distance(w[1]);
-        if acc > a && acc < b {
-            out.push(w[1]);
-        }
-    }
-    out.push(point_at(path, b));
-    out
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MarkKind {
+    /// a request / data packet
+    Packet,
+    /// a reply travelling back (hollow)
+    Reply,
+    /// an async message (small envelope)
+    Message,
+    /// a request that failed (red, fading)
+    Fail,
+    /// an expanding "ok" ring at the far end
+    Ring,
 }
 
-/// Signal sweep at a phase: (how far the bright front has got 0..1, brightness 0..1).
-pub fn signal(phase: f32) -> (f32, f32) {
-    let f = phase.fract();
-    if f < 0.6 {
-        (1.0 - (1.0 - f / 0.6).powi(3), 1.0)
-    } else {
-        (1.0, 1.0 - (f - 0.6) / 0.4)
-    }
+/// Something moving along a connector: `d` = distance from the start.
+#[derive(Clone, Copy, Debug)]
+pub struct Mark {
+    pub d: f32,
+    pub kind: MarkKind,
+    pub alpha: f32,
+    pub size: f32,
+    /// sideways offset off the line (a failed request falls off)
+    pub drift: f32,
 }
 
-/// Bright overlay of Comet / Signal flows: strokes (polyline, opacity, width multiplier)
-/// and glowing heads (position, opacity). Seamless over one phase unit, like the dots.
-pub fn flow_glow(flow: Flow, path: &[Pos2], phase: f32) -> (Vec<(Vec<Pos2>, f32, f32)>, Vec<(Pos2, f32)>) {
-    let l = path_len(path);
-    let (mut strokes, mut heads) = (vec![], vec![]);
+/// Unit vector pointing to the right of the path's direction at distance `d`.
+pub fn side_normal(path: &[Pos2], d: f32) -> Vec2 {
+    let v = (point_at(path, d + 1.0) - point_at(path, (d - 1.0).max(0.0))).normalized();
+    vec2(-v.y, v.x)
+}
+
+/// The moving marks of a meaningful flow on a connector of length `len` at `phase`
+/// (seamless over one phase unit). `slot` = (index, count) among Balanced siblings.
+pub fn flow_marks(flow: Flow, len: f32, phase: f32, slot: (usize, usize)) -> Vec<Mark> {
+    let t = phase.fract();
+    let ease = |x: f32| x * x * (3.0 - 2.0 * x);
+    let mark = |d: f32, kind, alpha, size| Mark { d: d.clamp(0.0, len), kind, alpha, size, drift: 0.0 };
+    // packets launched at `offsets`, each taking `dur` of the loop to cross
+    let travel = |offsets: &[f32], dur: f32, kind: MarkKind, size: f32| -> Vec<Mark> {
+        offsets.iter().filter_map(|o| {
+            let u = (t - o).rem_euclid(1.0);
+            (u < dur).then(|| mark(u / dur * len, kind, 1.0, size))
+        }).collect()
+    };
     match flow {
-        Flow::Comet => {
-            const K: usize = 12;
-            let mut d = phase.fract() * COMET_SPACING;
-            // heads run past the end so tails leave smoothly
-            while d < l + COMET_TAIL {
-                for j in 0..K {
-                    let (t0, t1) = (j as f32 / K as f32, (j + 1) as f32 / K as f32);
-                    let (a, b) = ((d - COMET_TAIL * (1.0 - t0)).clamp(0.0, l), (d - COMET_TAIL * (1.0 - t1)).clamp(0.0, l));
-                    if b - a > 0.1 {
-                        let seg = sub_path(path, a, b);
-                        strokes.push((seg.clone(), 0.18 * t1, 1.0 + 3.0 * t1));
-                        strokes.push((seg, t1.powf(1.2), 0.8 + 1.4 * t1));
-                    }
-                }
-                if d <= l {
-                    heads.push((point_at(path, d), 1.0));
-                }
-                d += COMET_SPACING;
+        Flow::Request => {
+            if t < 0.4 {
+                vec![mark(ease(t / 0.4) * len, MarkKind::Packet, 1.0, 1.0)]
+            } else if t < 0.5 {
+                // the callee works on it
+                let k = (t - 0.4) / 0.1;
+                vec![mark(len, MarkKind::Ring, 1.0 - k, 1.0 + k * 1.5)]
+            } else if t < 0.9 {
+                vec![mark((1.0 - ease((t - 0.5) / 0.4)) * len, MarkKind::Reply, 1.0, 1.0)]
+            } else {
+                vec![]
             }
         }
-        Flow::Signal => {
-            let (front, bright) = signal(phase);
-            if front > 0.0 && bright > 0.0 {
-                let lit = sub_path(path, 0.0, front * l);
-                strokes.push((lit.clone(), bright * 0.22, 3.2));
-                strokes.push((lit, bright, 1.15));
-                heads.push((point_at(path, front * l), bright));
+        Flow::Async => travel(&[0.0, 0.3, 0.55], 0.4, MarkKind::Message, 1.0),
+        Flow::Batch => travel(&[0.0, 0.05, 0.1, 0.15], 0.45, MarkKind::Packet, 0.8),
+        Flow::Fanout => travel(&[0.0, 0.5], 0.4, MarkKind::Message, 1.0),
+        Flow::Balanced => {
+            let (i, n) = (slot.0 as f32, slot.1.max(1) as f32);
+            if n < 2.0 { travel(&[0.0, 0.5], 0.45, MarkKind::Packet, 1.0) } else { travel(&[i / n], 0.45, MarkKind::Packet, 1.0) }
+        }
+        Flow::Heartbeat => {
+            if t < 0.25 {
+                vec![mark(t / 0.25 * len, MarkKind::Packet, 1.0, 0.6)]
+            } else if t < 0.55 {
+                let k = (t - 0.25) / 0.3;
+                vec![mark(len, MarkKind::Ring, 1.0 - k, 1.0 + k * 2.5)]
+            } else {
+                vec![]
             }
         }
-        _ => {}
+        Flow::Errors => {
+            let mut out = travel(&[0.0, 0.25, 0.75], 0.5, MarkKind::Packet, 1.0);
+            // every fourth request dies part-way
+            let u = (t - 0.5).rem_euclid(1.0);
+            // it dies a third of the way (clear of the label) and drops off the line
+            if u < 0.17 {
+                out.push(mark(u / 0.5 * len, MarkKind::Packet, 1.0, 1.0));
+            } else if u < 0.45 {
+                let k = (u - 0.17) / 0.28;
+                out.push(Mark { drift: k * k * 22.0, ..mark(0.34 * len, MarkKind::Fail, 1.0 - k * k, 1.15) });
+            }
+            out
+        }
+        _ => vec![],
     }
-    (strokes, heads)
 }
 
 /// The polyline shifted sideways by `d` (corners mitred), e.g. for double lines.
@@ -1641,6 +1696,20 @@ pub fn node_height(e: &Element) -> f32 {
 }
 
 impl Doc {
+    /// (index, count) of a Balanced connector among the Balanced connectors leaving the same
+    /// component, ordered top-to-bottom then left-to-right by target, so they take turns in order.
+    pub fn flow_slot(&self, e: &Element) -> (usize, usize) {
+        let Some(src) = e.from.id.filter(|_| e.style.flow == Flow::Balanced) else { return (0, 1) };
+        let mut sib: Vec<(u64, Pos2)> = self
+            .elements
+            .iter()
+            .filter(|a| a.kind == Kind::Arrow && a.from.id == Some(src) && a.style.flow == Flow::Balanced)
+            .map(|a| (a.id, a.to.id.and_then(|t| self.get(t)).map_or(a.to.p, |t| t.rect.center())))
+            .collect();
+        sib.sort_by(|a, b| (a.1.y, a.1.x).partial_cmp(&(b.1.y, b.1.x)).unwrap_or(std::cmp::Ordering::Equal));
+        (sib.iter().position(|x| x.0 == e.id).unwrap_or(0), sib.len())
+    }
+
     /// Grows component cards whose wrapped text no longer fits (never shrinks a card you made taller).
     pub fn fit_nodes(&mut self) {
         for e in self.elements.iter_mut().filter(|e| e.kind == Kind::Node) {
@@ -1948,16 +2017,18 @@ mod tests {
     }
 
     #[test]
-    fn glow_flows_loop_seamlessly() {
-        let path = [pos2(0.0, 0.0), pos2(300.0, 0.0), pos2(300.0, 200.0)];
-        assert_eq!(path_len(&sub_path(&path, 100.0, 400.0)).round(), 300.0);
-        for f in [Flow::Comet, Flow::Signal] {
-            let (a, b) = (flow_glow(f, &path, 0.0), flow_glow(f, &path, 1.0));
-            assert_eq!((a.0.len(), a.1.len()), (b.0.len(), b.1.len()));
+    fn meaningful_flows_loop_and_behave() {
+        for (f, _, _) in Flow::MENU {
+            let (a, b) = (flow_marks(f, 300.0, 0.37, (0, 1)), flow_marks(f, 300.0, 2.37, (0, 1)));
+            assert_eq!(a.len(), b.len(), "{f:?} loops");
         }
-        assert_eq!(signal(0.0), (0.0, 1.0));
-        assert!(signal(0.99).1 < 0.05);
-        assert!(!flow_glow(Flow::Comet, &path, 0.5).1.is_empty());
+        // the reply comes back after the request arrives
+        assert_eq!(flow_marks(Flow::Request, 300.0, 0.2, (0, 1))[0].kind, MarkKind::Packet);
+        assert_eq!(flow_marks(Flow::Request, 300.0, 0.7, (0, 1))[0].kind, MarkKind::Reply);
+        // load-balanced siblings take turns: never both busy at the very start of each other's slot
+        let busy = |i, t| !flow_marks(Flow::Balanced, 300.0, t, (i, 2)).is_empty();
+        assert!(busy(0, 0.1) && !busy(1, 0.1) && busy(1, 0.6) && !busy(0, 0.6));
+        assert!(flow_marks(Flow::Errors, 300.0, 0.5 + 0.4, (0, 1)).iter().any(|m| m.kind == MarkKind::Fail));
     }
 
     #[test]

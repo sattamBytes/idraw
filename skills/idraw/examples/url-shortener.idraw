@@ -13,11 +13,11 @@
     { "kind": "node", "id": "db", "icon": "oss-postgres", "title": "Postgres", "subtitle": "all links", "x": 1040, "y": 400 },
     { "kind": "node", "id": "stats", "icon": "oss-kafka", "title": "Click stream", "subtitle": "Kafka · analytics", "x": 640, "y": 400 },
 
-    { "kind": "edge", "id": "e1", "from": "user", "to": "cdn", "text": "12k rps", "flow": "comet" },
-    { "kind": "edge", "id": "e2", "from": "cdn", "to": "api", "text": "cache miss", "flow": "comet", "stroke": "#2563eb" },
-    { "kind": "edge", "id": "e3", "from": {"id": "api", "side": "right"}, "to": {"id": "cache", "side": "left"}, "text": "GET x7Kp", "flow": "signal", "stroke": "#0f766e" },
+    { "kind": "edge", "id": "e1", "from": "user", "to": "cdn", "text": "12k rps", "flow": "request" },
+    { "kind": "edge", "id": "e2", "from": "cdn", "to": "api", "text": "cache miss", "flow": "request", "stroke": "#2563eb" },
+    { "kind": "edge", "id": "e3", "from": {"id": "api", "side": "right"}, "to": {"id": "cache", "side": "left"}, "text": "GET x7Kp", "flow": "request", "stroke": "#0f766e" },
     { "kind": "edge", "id": "e4", "from": {"id": "api", "side": "right"}, "to": {"id": "db", "side": "left"}, "text": "on miss", "label_t": 0.75, "pattern": "dotted", "stroke": "#64748b" },
-    { "kind": "edge", "id": "e5", "from": {"id": "api", "side": "bottom"}, "to": {"id": "stats", "side": "top"}, "text": "async", "pattern": "dash_dot", "stroke": "#c2410c", "flow": "dots" },
+    { "kind": "edge", "id": "e5", "from": {"id": "api", "side": "bottom"}, "to": {"id": "stats", "side": "top"}, "text": "async", "pattern": "dash_dot", "stroke": "#c2410c", "flow": "async" },
 
     { "kind": "sticky", "text": "301 = browsers\nremember it too", "x": 340, "y": 360, "w": 180, "h": 100, "face": "hand" }
   ],

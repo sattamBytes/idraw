@@ -177,7 +177,7 @@ fn element(raw: &Map<String, Value>, id: u64, keys: &HashMap<String, u64>, warn:
     }
     for (k, names) in [
         ("route", &["Elbow", "Straight", "Curve"][..]),
-        ("flow", &["None", "Dots", "Dashes", "Comet", "Signal"][..]),
+        ("flow", &["None", "Dots", "Dashes", "Request", "Async", "Batch", "Heartbeat", "Errors", "Balanced", "Fanout"][..]),
         ("pattern", &["Solid", "Dotted", "DashDot", "Double"][..]),
         ("face", &["Auto", "Sans", "Hand", "Mono", "Serif"][..]),
     ] {
@@ -187,10 +187,16 @@ fn element(raw: &Map<String, Value>, id: u64, keys: &HashMap<String, u64>, warn:
     }
     if let Some(Value::String(f)) = style.get("flow") {
         // friendly names for the animations
-        let f = match f.to_lowercase().as_str() {
-            "packets" | "dot" => "Dots",
+        let f = match squash(f).as_str() {
+            "packets" | "dot" | "stream" | "comet" => "Dots",
             "dash" | "marching" => "Dashes",
             "off" | "none" => "None",
+            "requestreply" | "sync" | "rpc" | "call" | "reply" | "signal" => "Request",
+            "message" | "event" | "fireandforget" => "Async",
+            "pubsub" | "broadcast" => "Fanout",
+            "roundrobin" | "lb" | "loadbalanced" => "Balanced",
+            "health" | "healthcheck" | "ping" | "keepalive" => "Heartbeat",
+            "fail" | "failing" | "dropped" | "throttled" | "rejected" | "somefail" => "Errors",
             _ => "",
         };
         if !f.is_empty() {
@@ -333,7 +339,7 @@ mod tests {
             { "kind": "boundary", "id": "vpc", "title": "VPC", "x": 0, "y": 0, "w": 600, "h": 300, "stroke": "#2563eb", "pattern": "dash-dot" },
             { "kind": "node", "id": "api", "icon": "api-gateway", "x": 40, "y": 60, "title": "API", "subtitle": "REST" },
             { "kind": "box", "id": "db", "x": 300, "y": 60, "text": "DB", "fill": "#fef3c7", "face": "serif", "tpos": "top_left" },
-            { "kind": "edge", "id": "q", "from": "api", "to": {"id": "db", "side": "left"}, "flow": "comet", "text": "SQL" },
+            { "kind": "edge", "id": "q", "from": "api", "to": {"id": "db", "side": "left"}, "flow": "request-reply", "text": "SQL" },
             { "kind": "region", "preset": "private subnet", "x": 0, "y": 400 }
         ], "scenarios": [{ "name": "read", "steps": [{ "from": "api", "to": "db", "edge": "q", "caption": "query" }] }] }"##;
         let (d, warn) = parse(src).unwrap();
@@ -351,7 +357,7 @@ mod tests {
         assert_eq!((db.style.face, db.tpos), (Face::Serif, TextPos::TopLeft));
         let e = d.elements.iter().find(|e| e.kind == Kind::Arrow).unwrap();
         assert_eq!((e.from.id, e.to.id, e.to.side), (Some(api.id), Some(db.id), Some(3)));
-        assert_eq!(e.style.flow, Flow::Comet);
+        assert_eq!(e.style.flow, Flow::Request);
         assert!(d.next_id >= 4);
     }
 

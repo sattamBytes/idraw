@@ -54,7 +54,32 @@ idraw check diagram.idraw          # bad ids, unknown icons, overlaps, text that
 idraw icons kafka                  # find icon ids
 ```
 
-**Claude Code skill:** copy [`skills/idraw`](skills/idraw) to `~/.claude/skills/idraw` and ask Claude to "draw an idraw diagram of …". The skill teaches the format, layouts that read well and a render → look → refine loop. See [`skills/idraw/reference.md`](skills/idraw/reference.md) for every field.
+### Install the idraw skill in your AI agent
+
+The [idraw skill](skills/idraw) teaches an agent the file format, layouts that read well, and a render → look → refine loop. It uses the open [Agent Skills](https://agentskills.io) format, so one copy works across tools.
+
+**One command** (installs into every tool it finds on your Mac):
+
+```bash
+idraw skill install            # your user folders: Claude Code, Cursor, Codex, Gemini CLI, Antigravity, VS Code Copilot
+idraw skill install --project  # just this repo: .agents/skills and .claude/skills
+```
+
+Then restart the agent and ask: *"draw an idraw diagram of how our checkout works"*.
+
+**Or copy the folder yourself.** Put `skills/idraw` (the folder containing `SKILL.md`) here:
+
+| Tool | Your user folder | Inside a project |
+|---|---|---|
+| Claude Code | `~/.claude/skills/idraw` | `.claude/skills/idraw` |
+| Cursor | `~/.cursor/skills/idraw` (also reads `~/.claude/skills`) | `.cursor/skills/idraw` or `.agents/skills/idraw` |
+| OpenAI Codex | `~/.agents/skills/idraw` | `.agents/skills/idraw` |
+| Gemini CLI | `~/.gemini/skills/idraw` or `~/.agents/skills/idraw` | `.gemini/skills/idraw` or `.agents/skills/idraw` |
+| Google Antigravity | `~/.gemini/config/skills/idraw` (Antigravity 2.0) | `.agents/skills/idraw` |
+| VS Code / GitHub Copilot | `~/.copilot/skills/idraw` (turn on `chat.useAgentSkills` if needed) | `.github/skills/idraw` or `.agents/skills/idraw` |
+| Others (OpenCode, Goose, Kiro, Roo…) | `~/.agents/skills/idraw` usually works | `.agents/skills/idraw` |
+
+The agent also needs the `idraw` command on its PATH (Homebrew sets this up). See [`skills/idraw/reference.md`](skills/idraw/reference.md) for every field.
 
 <p align="center"><img src="skills/idraw/examples/url-shortener.png" alt="URL shortener diagram written by an agent with the idraw skill" width="820"></p>
 

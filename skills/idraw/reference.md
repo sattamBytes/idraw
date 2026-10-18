@@ -55,7 +55,7 @@ Big labelled zones: cloud, VPC, subnet, cluster, team, layer. Title goes top-lef
 | `text` | label on the line. A rate like `"1.2k rps"` makes the line thicker and faster |
 | `route` | `elbow` (default, avoids shapes), `straight`, `curve` |
 | `pattern` | `solid`, `dotted`, `dash_dot`, `double` (or `dashed: true`) |
-| `flow` | animation: `none`, `dots` (packets), `dashes` (marching), `comet` (glowing streak), `signal` (lights up source → target) |
+| `flow` | animation by meaning: `request` (sync call + hollow reply), `async` (one-way envelopes), `stream` (steady packets), `batch` (bursts), `fanout` (pub/sub: all sibling edges at once), `balanced` (round robin: sibling edges take turns), `heartbeat` (ping + ok ripple), `errors` (some fail and drop off), `dashes` (marching), `none` |
 | `speed` | `slow`, `normal`, `fast` |
 | `head_start`, `head_end` | arrowheads (default: end only). Both `true` = two-way |
 | `failover` | `true` = backup path: faint until something is `down` |

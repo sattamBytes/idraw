@@ -355,11 +355,7 @@ fn draw_arrow(p: &Painter, ctx: &Context, doc: &Doc, e: &Element, v: &View, o: &
             _ if dashed => p.extend(Shape::dashed_line(&sl, stroke, 8.0 * z, 6.0 * z)),
             _ => {
                 // animated flows draw a faint track under their packets
-                let col = match flow {
-                    Flow::Dots => color.gamma_multiply(0.45),
-                    Flow::Comet | Flow::Signal => color.gamma_multiply(0.3),
-                    _ => color,
-                };
+                let col = if flow == Flow::None { color } else { color.gamma_multiply(0.45) };
                 match s.pattern {
                     Pattern::Dotted => p.extend(Shape::dotted_line(&sl, col, (width * 2.2 + 4.0) * z, width * 0.6 * z)),
                     Pattern::DashDot => p.extend(Shape::dashed_line_with_offset(&sl, Stroke::new(width * z, col), &[10.0 * z, width * z], &[5.0 * z, 5.0 * z], 0.0)),
@@ -383,17 +379,40 @@ fn draw_arrow(p: &Painter, ctx: &Context, doc: &Doc, e: &Element, v: &View, o: &
             p.add(Shape::convex_polygon(v.pts(&h), color, Stroke::NONE));
         }
     }
-    if matches!(flow, Flow::Comet | Flow::Signal) && !dashed {
-        let (strokes, glows) = flow_glow(flow, &pieces.concat(), phase);
-        for (pts, a, wm) in strokes {
-            p.add(Shape::line(v.pts(&pts), Stroke::new(width * wm * z, color.gamma_multiply(a))));
-        }
-        let rad = (2.0 + width * 0.6) * z;
-        for (c, a) in glows {
-            let c = v.w2s(c);
-            p.circle_filled(c, rad * 2.6, color.gamma_multiply(0.16 * a));
-            p.circle_filled(c, rad * 1.4, color.gamma_multiply(a));
-            p.circle_filled(c, rad * 0.6, Color32::WHITE.gamma_multiply(0.9 * a));
+    if !matches!(flow, Flow::None | Flow::Dots | Flow::Dashes) && !dashed {
+        let track = pieces.concat();
+        let rad = (3.0 + width * 0.75) * z;
+        for mk in flow_marks(flow, path_len(&track), phase, doc.flow_slot(e)) {
+            let c = v.w2s(point_at(&track, mk.d) + side_normal(&track, mk.d) * mk.drift);
+            let (r, col) = (rad * mk.size, color.gamma_multiply(mk.alpha));
+            match mk.kind {
+                MarkKind::Packet => {
+                    p.circle_filled(c, r * 2.0, color.gamma_multiply(0.18 * mk.alpha));
+                    p.circle_filled(c, r, col);
+                }
+                // a reply: hollow, like UML's open-headed return message
+                MarkKind::Reply => {
+                    p.circle(c, r, theme::panel_bg(), Stroke::new(2.0 * z, col));
+                }
+                MarkKind::Message => {
+                    let b = Rect::from_center_size(c, vec2(r * 2.6, r * 1.9));
+                    p.rect(b, cr(2.0 * z), col, Stroke::NONE, StrokeKind::Inside);
+                    p.line_segment([b.left_top() + vec2(1.0, 1.0) * z, b.center()], Stroke::new(1.2 * z, theme::panel_bg()));
+                    p.line_segment([b.right_top() + vec2(-1.0, 1.0) * z, b.center()], Stroke::new(1.2 * z, theme::panel_bg()));
+                }
+                // a dropped request: white dot with a red cross, falling off the line
+                MarkKind::Fail => {
+                    let red = DOWN_RED.gamma_multiply(mk.alpha);
+                    p.circle(c, r * 1.2, theme::panel_bg().gamma_multiply(mk.alpha), Stroke::new(1.8 * z, red));
+                    let k = r * 0.55;
+                    for s in [1.0, -1.0] {
+                        p.line_segment([c + vec2(-k, -k * s), c + vec2(k, k * s)], Stroke::new(1.8 * z, red));
+                    }
+                }
+                MarkKind::Ring => {
+                    p.circle_stroke(c, r * 1.4, Stroke::new(1.8 * z, col));
+                }
+            }
         }
     }
     if flow == Flow::Dots {

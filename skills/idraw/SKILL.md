@@ -47,7 +47,7 @@ Full field list: [reference.md](reference.md). The minimum:
     { "kind": "node", "id": "users", "icon": "user", "title": "Users", "subtitle": "web + mobile", "x": 40, "y": 220 },
     { "kind": "node", "id": "api", "icon": "gateway", "title": "API Gateway", "subtitle": "REST · auth", "x": 340, "y": 220 },
     { "kind": "node", "id": "db", "icon": "oss-postgres", "title": "Postgres", "subtitle": "primary", "x": 760, "y": 220 },
-    { "kind": "edge", "from": "users", "to": "api", "text": "HTTPS", "flow": "comet" },
+    { "kind": "edge", "from": "users", "to": "api", "text": "HTTPS", "flow": "request" },
     { "kind": "edge", "from": "api", "to": "db", "text": "SQL" }
   ]
 }
@@ -73,7 +73,16 @@ Spacing that looks designed: snap to a 20px grid; 100–140px gaps between compo
 ## Making it creative (not just correct)
 
 - **Title + one-line takeaway** as `text` at the top (`"font": "xl"` then `"font": "m"`, muted colour).
-- **Make the main path pop**: animate it (`"flow": "comet"` for hot traffic, `"signal"` for request/response, `"dots"` for steady streams), give it a stronger colour or `"width": 3`; make side paths `"pattern": "dotted"` or grey.
+- **Animate by meaning, not decoration** (`"flow"` on an edge). Each one tells the viewer how the systems talk:
+  - `request` — synchronous call: the request goes out, the caller waits, a hollow reply comes back (UML call + reply). User → API, service → database.
+  - `async` — fire-and-forget messages (little envelopes), several in flight, no reply. Service → queue, webhooks.
+  - `stream` — steady data (events, logs, CDC, replication).
+  - `batch` — bursts with pauses: nightly ETL, bulk sync, backups.
+  - `fanout` — pub/sub: put it on *every* edge leaving a topic/bus; they all get a copy at once.
+  - `balanced` — round robin: put it on *every* edge leaving a load balancer; they take turns.
+  - `heartbeat` — health checks / keep-alives: a small ping and an "ok" ripple.
+  - `errors` — some requests fail part-way (a red ✕ drops off): flaky dependency, rate limits, timeouts.
+  Animate the paths that matter for the story, leave the rest still. Make the main path pop with a stronger colour or `"width": 3`; make side paths `"pattern": "dotted"` or grey.
 - **Meaningful colour**: one accent per concern (e.g. blue = sync, orange = async, red = failure path, green = cache hit). Add a small legend (sticky or text) when you use more than two meanings.
 - **Explain, don't just box**: `sticky` notes for callouts ("p99 < 50ms here"), `notes` on a component for the details, edge labels for protocols and rates (`"2.4k rps"` thickens and speeds the line).
 - **Show behaviour**: `replicas` for scaled services, `"failover": true` on backup paths, a `scenarios` walkthrough for "what happens when a user does X".

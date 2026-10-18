@@ -334,11 +334,7 @@ fn arrow(o: &mut String, c: &Ctx, e: &Element) {
                 let _ = write!(o, r#"{base} {} stroke-dasharray="8 6"/>"#, paint("stroke", color));
             }
             _ => {
-                let col = match flow {
-                    Flow::Dots => color.gamma_multiply(0.45),
-                    Flow::Comet | Flow::Signal => color.gamma_multiply(0.3),
-                    _ => color,
-                };
+                let col = if flow == Flow::None { color } else { color.gamma_multiply(0.45) };
                 // round caps turn zero-length dashes into dots
                 let g = 5.0 + width;
                 let _ = match s.pattern {
@@ -366,16 +362,34 @@ fn arrow(o: &mut String, c: &Ctx, e: &Element) {
             poly_path(o, &h, true, &paint("fill", color));
         }
     }
-    if matches!(flow, Flow::Comet | Flow::Signal) && !dashed {
-        let (strokes, glows) = flow_glow(flow, &pieces.concat(), phase);
-        for (p, a, wm) in strokes {
-            // butt caps so overlapping translucent slices don't bead
-            let _ = write!(o, r#"<polyline points="{}" fill="none" stroke-width="{:.2}" stroke-linejoin="round" stroke-linecap="butt" {}/>"#, pts(&p), width * wm, paint("stroke", color.gamma_multiply(a)));
-        }
-        let rad = 2.0 + width * 0.6;
-        for (d, a) in glows {
-            for (r, col) in [(2.6, color.gamma_multiply(0.16 * a)), (1.4, color.gamma_multiply(a)), (0.6, Color32::WHITE.gamma_multiply(0.9 * a))] {
-                let _ = write!(o, r#"<circle cx="{:.1}" cy="{:.1}" r="{:.1}" {}/>"#, d.x, d.y, rad * r, paint("fill", col));
+    if !matches!(flow, Flow::None | Flow::Dots | Flow::Dashes) && !dashed {
+        let track = pieces.concat();
+        let rad = 3.0 + width * 0.75;
+        let bg = c.m(Color32::WHITE);
+        for mk in flow_marks(flow, path_len(&track), phase, c.doc.flow_slot(e)) {
+            let p = point_at(&track, mk.d) + side_normal(&track, mk.d) * mk.drift;
+            let (r, col) = (rad * mk.size, color.gamma_multiply(mk.alpha));
+            let circle = |o: &mut String, r: f32, attrs: String| {
+                let _ = write!(o, r#"<circle cx="{:.1}" cy="{:.1}" r="{r:.1}" {attrs}/>"#, p.x, p.y);
+            };
+            match mk.kind {
+                MarkKind::Packet => {
+                    circle(o, r * 2.0, paint("fill", color.gamma_multiply(0.18 * mk.alpha)));
+                    circle(o, r, paint("fill", col));
+                }
+                MarkKind::Reply => circle(o, r, format!(r#"{} {} stroke-width="2""#, paint("fill", bg), paint("stroke", col))),
+                MarkKind::Message => {
+                    let (w, h) = (r * 2.6, r * 1.9);
+                    let _ = write!(o, r#"<rect x="{:.1}" y="{:.1}" width="{w:.1}" height="{h:.1}" rx="2" {}/>"#, p.x - w / 2.0, p.y - h / 2.0, paint("fill", col));
+                    let _ = write!(o, r#"<polyline points="{:.1},{:.1} {:.1},{:.1} {:.1},{:.1}" fill="none" stroke-width="1.2" {}/>"#, p.x - w / 2.0 + 1.0, p.y - h / 2.0 + 1.0, p.x, p.y, p.x + w / 2.0 - 1.0, p.y - h / 2.0 + 1.0, paint("stroke", bg));
+                }
+                MarkKind::Fail => {
+                    let red = DOWN_RED.gamma_multiply(mk.alpha);
+                    circle(o, r * 1.2, format!(r#"{} {} stroke-width="1.8""#, paint("fill", bg.gamma_multiply(mk.alpha)), paint("stroke", red)));
+                    let k = r * 0.55;
+                    let _ = write!(o, r#"<path d="M{:.1} {:.1}L{:.1} {:.1}M{:.1} {:.1}L{:.1} {:.1}" stroke-width="1.8" {}/>"#, p.x - k, p.y - k, p.x + k, p.y + k, p.x - k, p.y + k, p.x + k, p.y - k, paint("stroke", red));
+                }
+                MarkKind::Ring => circle(o, r * 1.4, format!(r#"fill="none" stroke-width="1.8" {}"#, paint("stroke", col))),
             }
         }
     }

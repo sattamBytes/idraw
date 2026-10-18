@@ -16,7 +16,19 @@ const HELP: &str = "idraw — diagrams for system design
         --failures   show the outage simulation
   idraw check <file>                     report problems: bad ids, overlaps, overflowing text…
   idraw icons [search…]                  list icon ids for components (\"icon\": \"aws-lambda\")
+  idraw skill install [--project]        add the idraw skill to Claude Code, Cursor, Codex,
+                                         Gemini CLI, Antigravity and VS Code Copilot
 ";
+
+/// The agent skill, built into the binary so `idraw skill install` works from Homebrew too.
+const SKILL_FILES: [(&str, &[u8]); 6] = [
+    ("SKILL.md", include_bytes!("../skills/idraw/SKILL.md")),
+    ("reference.md", include_bytes!("../skills/idraw/reference.md")),
+    ("examples/url-shortener.idraw", include_bytes!("../skills/idraw/examples/url-shortener.idraw")),
+    ("examples/url-shortener.png", include_bytes!("../skills/idraw/examples/url-shortener.png")),
+    ("examples/flow-meanings.idraw", include_bytes!("../skills/idraw/examples/flow-meanings.idraw")),
+    ("examples/flow-meanings.png", include_bytes!("../skills/idraw/examples/flow-meanings.png")),
+];
 
 /// Runs a CLI command if one was given; returns the exit code, or None to open the app.
 pub fn run() -> Option<i32> {
@@ -26,6 +38,7 @@ pub fn run() -> Option<i32> {
     Some(match cmd {
         "render" => report(render(rest)),
         "check" => report(check(rest)),
+        "skill" => report(skill(rest)),
         "icons" => {
             icons_list(rest);
             0
@@ -83,6 +96,46 @@ fn render(rest: &[String]) -> Result<bool, String> {
         eprintln!("warning: {w}");
     }
     println!("{}", out.display());
+    Ok(true)
+}
+
+/// Copies the skill into each agent tool's skills folder (only tools that are installed).
+fn skill(rest: &[String]) -> Result<bool, String> {
+    if rest.first().map(String::as_str) != Some("install") {
+        return Err("usage: idraw skill install [--project]".into());
+    }
+    let home = PathBuf::from(std::env::var("HOME").map_err(|_| "HOME is not set")?);
+    // (folder that must exist, skills folder, tools that read it)
+    let targets: Vec<(PathBuf, PathBuf, &str)> = if rest.iter().any(|a| a == "--project") {
+        vec![
+            (".".into(), ".agents/skills".into(), "Cursor, Codex, Gemini CLI, Antigravity, VS Code (this project)"),
+            (".".into(), ".claude/skills".into(), "Claude Code (this project)"),
+        ]
+    } else {
+        let h = |p: &str| home.join(p);
+        vec![
+            (h(".claude"), h(".claude/skills"), "Claude Code"),
+            (h(".cursor"), h(".cursor/skills"), "Cursor"),
+            (home.clone(), h(".agents/skills"), "Codex, Gemini CLI and other Agent Skills tools"),
+            (h(".gemini"), h(".gemini/skills"), "Gemini CLI"),
+            (h(".gemini/config"), h(".gemini/config/skills"), "Antigravity"),
+            (h(".gemini/antigravity-cli"), h(".gemini/antigravity-cli/skills"), "Antigravity CLI"),
+            (h(".copilot"), h(".copilot/skills"), "VS Code / GitHub Copilot"),
+        ]
+    };
+    for (needs, dir, who) in targets {
+        if !needs.is_dir() {
+            continue;
+        }
+        let dest = dir.join("idraw");
+        for (name, bytes) in SKILL_FILES {
+            let p = dest.join(name);
+            std::fs::create_dir_all(p.parent().unwrap()).map_err(|e| format!("{}: {e}", p.display()))?;
+            std::fs::write(&p, bytes).map_err(|e| format!("{}: {e}", p.display()))?;
+        }
+        println!("✓ {:<48} {who}", dest.display());
+    }
+    println!("Restart your agent, then ask it to \"draw an idraw diagram of …\".");
     Ok(true)
 }
 

@@ -1,0 +1,33 @@
+{
+  "elements": [
+    { "kind": "text", "text": "What each animation means", "x": -80, "y": 20, "font": "xl", "face": "serif" },
+    { "kind": "text", "text": "Pick the animation by behaviour: who waits, who gets a copy, what can fail", "x": -80, "y": 70, "stroke": "#64748b" },
+
+    { "kind": "node", "id": "app", "icon": "mobile", "title": "Checkout app", "x": -80, "y": 260 },
+    { "kind": "node", "id": "api", "icon": "gateway", "title": "Orders API", "x": 340, "y": 260 },
+    { "kind": "node", "id": "pay", "icon": "service", "title": "Payments", "subtitle": "3rd party", "x": 340, "y": 440 },
+    { "kind": "node", "id": "mon", "icon": "service", "title": "Health checker", "x": 340, "y": 120 },
+
+    { "kind": "node", "id": "lb", "icon": "lb", "title": "Load balancer", "x": 640, "y": 260 },
+    { "kind": "node", "id": "w1", "icon": "server", "title": "Worker 1", "x": 940, "y": 160 },
+    { "kind": "node", "id": "w2", "icon": "server", "title": "Worker 2", "x": 940, "y": 260 },
+    { "kind": "node", "id": "w3", "icon": "server", "title": "Worker 3", "x": 940, "y": 360 },
+
+    { "kind": "node", "id": "bus", "icon": "oss-kafka", "title": "Order events", "x": 640, "y": 540 },
+    { "kind": "node", "id": "mail", "icon": "service", "title": "Email", "x": 940, "y": 480 },
+    { "kind": "node", "id": "stock", "icon": "service", "title": "Inventory", "x": 940, "y": 580 },
+    { "kind": "node", "id": "dw", "icon": "gcp-bigquery", "title": "Warehouse", "x": 1240, "y": 580 },
+
+    { "kind": "edge", "from": "app", "to": "api", "flow": "request", "text": "sync call" },
+    { "kind": "edge", "from": "mon", "to": "api", "flow": "heartbeat", "text": "heartbeat", "stroke": "#15803d" },
+    { "kind": "edge", "from": {"id": "api", "side": "bottom"}, "to": {"id": "pay", "side": "top"}, "flow": "errors", "text": "some fail" },
+    { "kind": "edge", "from": "api", "to": "lb", "flow": "request" },
+    { "kind": "edge", "from": "lb", "to": "w1", "flow": "balanced" },
+    { "kind": "edge", "from": "lb", "to": "w2", "flow": "balanced", "text": "load balanced" },
+    { "kind": "edge", "from": "lb", "to": "w3", "flow": "balanced" },
+    { "kind": "edge", "from": {"id": "api", "side": "bottom"}, "to": {"id": "bus", "side": "left"}, "flow": "async", "text": "async", "stroke": "#c2410c" },
+    { "kind": "edge", "from": "bus", "to": "mail", "flow": "fanout", "stroke": "#c2410c" },
+    { "kind": "edge", "from": "bus", "to": "stock", "flow": "fanout", "text": "fan-out", "stroke": "#c2410c" },
+    { "kind": "edge", "from": "stock", "to": "dw", "flow": "batch", "text": "nightly batch", "stroke": "#0369a1" }
+  ]
+}

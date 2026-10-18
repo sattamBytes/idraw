@@ -161,6 +161,30 @@ fn seg<T: PartialEq + Copy>(ui: &mut Ui, cur: T, opts: &[(T, &str)]) -> Option<T
     out
 }
 
+/// Flow animations by meaning, two per row.
+fn flow_pick(ui: &mut Ui, cur: Flow) -> Option<Flow> {
+    let mut out = None;
+    Frame::new().fill(theme::hover()).corner_radius(8).inner_margin(Margin::same(2)).show(ui, |ui| {
+        let w = (PANEL_W - 6.0) / 2.0;
+        for row in Flow::MENU.chunks(2) {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 2.0;
+                for (f, label, what) in row {
+                    let on = *f == cur;
+                    let b = egui::Button::new(RichText::new(*label).size(12.0).color(if on { theme::active_fg() } else { theme::text() }))
+                        .fill(if on { theme::panel_bg() } else { Color32::TRANSPARENT })
+                        .corner_radius(6)
+                        .min_size(vec2(w, 24.0));
+                    if ui.add(b).on_hover_text(*what).clicked() && !on {
+                        out = Some(*f);
+                    }
+                }
+            });
+        }
+    });
+    out
+}
+
 /// Typefaces shown as "Aa" in each face.
 fn face_pick(ui: &mut Ui, cur: Face) -> Option<Face> {
     let opts = [(Face::Sans, "Clean"), (Face::Hand, "Hand-drawn"), (Face::Mono, "Code"), (Face::Serif, "Serif")];
@@ -776,8 +800,14 @@ impl App {
                             change = Some(Box::new(move |e| (e.style.head_start, e.style.head_end) = (a, b)));
                         }
                         section(ui, "Flow animation");
-                        if let Some(f) = seg(ui, s.flow, &[(Flow::None, "Off"), (Flow::Dots, "Dots"), (Flow::Dashes, "Dash"), (Flow::Comet, "Comet"), (Flow::Signal, "Signal")]) {
+                        if let Some(f) = flow_pick(ui, s.flow) {
                             change = Some(Box::new(move |e| e.style.flow = f));
+                        }
+                        if let Some((_, _, what)) = Flow::MENU.iter().find(|m| m.0 == s.flow).filter(|m| m.0 != Flow::None) {
+                            ui.label(RichText::new(*what).size(11.5).color(theme::muted()));
+                            if matches!(s.flow, Flow::Balanced | Flow::Fanout) {
+                                ui.label(RichText::new("Use it on every connector leaving the same component.").size(11.5).color(theme::muted()));
+                            }
                         }
                         if s.flow != Flow::None || first.failover {
                             section(ui, "Speed");
@@ -1666,7 +1696,7 @@ impl App {
                 Frame::new().fill(theme::hover()).corner_radius(8).inner_margin(Margin::same(10)).show(ui, |ui| {
                     ui.label(RichText::new("Users -> API Gateway -> Orders\nOrders -> Postgres : SQL\nOrders => Kafka").monospace().size(12.0));
                     ui.add_space(2.0);
-                    ui.label(RichText::new("->  arrow   -->  dashed   =>  dots   ~>  dash   *>  comet   >>  signal\n:   adds a label    Postgres, S3, Lambda… get their icon").small().color(theme::muted()));
+                    ui.label(RichText::new("->  arrow   -->  dashed   =>  stream   >>  request/reply   *>  async   ~>  dashes\n:   adds a label    Postgres, S3, Lambda… get their icon").small().color(theme::muted()));
                 });
                 ui.add_space(6.0);
                 let h = ui.available_height() - 60.0;
