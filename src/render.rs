@@ -226,6 +226,14 @@ fn draw_node(p: &Painter, ctx: &Context, e: &Element, v: &View, icons: &mut Icon
         Stroke::new(1.0 * z, m(CARD_BORDER))
     };
     let shadow = Shadow { offset: [0, (3.0 * z).clamp(0.0, 127.0) as i8], blur: (14.0 * z).clamp(0.0, 255.0) as u8, spread: 0, color: Color32::from_black_alpha(if o.dark { 60 } else { 22 }) };
+    if let Some(nr) = node_extras(e).notes {
+        let sr = v.rect(nr);
+        p.add(Shadow { offset: [0, (3.0 * z) as i8], blur: (10.0 * z).min(255.0) as u8, spread: 0, color: Color32::from_black_alpha(if o.dark { 50 } else { 16 }) }.as_shape(sr, cr(10.0 * z)));
+        p.rect(sr, cr(10.0 * z), m(tint(accent, 0.05)), Stroke::new(1.0 * z, m(CARD_BORDER)), StrokeKind::Inside);
+        let lines = node_notes(e);
+        let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
+        text_lines(p, v, &refs, nr.min.x + NOTE_PAD, nr.min.y + NOTE_TUCK + NOTE_PAD, NOTE_SIZE, false, m(Color32::from_rgb(0x4b, 0x55, 0x63)), 0.0, o.sketch);
+    }
     for k in (1..e.replicas.min(3)).rev() {
         let rr = v.rect(r.translate(Vec2::splat(6.0 * k as f32)));
         p.rect(rr, cr(12.0 * z), card, border, StrokeKind::Inside);
@@ -270,18 +278,14 @@ fn draw_node(p: &Painter, ctx: &Context, e: &Element, v: &View, icons: &mut Icon
     if e.show_cap {
         if let Some(c) = e.cap {
             let g = p.layout_no_wrap(c.badge(), FontId::monospace(10.5 * z), m(MUTED));
-            let top = v.w2s(pos2(r.center().x, r.max.y + node_extras(e).0));
+            let top = v.w2s(pos2(r.center().x, node_extras(e).badge_top));
             let b = Rect::from_min_size(pos2(top.x - g.size().x / 2.0 - 6.0 * z, top.y), g.size() + vec2(12.0 * z, 4.0 * z));
             p.rect(b, cr(4.0 * z), theme::map(Color32::from_rgb(0xf8, 0xfa, 0xfc), o.dark), Stroke::new(1.0, m(CARD_BORDER)), StrokeKind::Inside);
             p.galley(b.min + vec2(6.0 * z, 2.0 * z), g, m(MUTED));
         }
     }
     if !e.notes.trim().is_empty() {
-        if e.show_notes {
-            let lines = node_notes(e);
-            let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
-            text_lines(p, v, &refs, r.center().x, r.max.y + node_extras(e).1, NOTE_SIZE, false, m(MUTED), 0.5, o.sketch);
-        } else {
+        if !e.show_notes {
             // small "has notes" marker; full text on hover
             let c = v.w2s(pos2(r.max.x - 12.0, r.max.y - 12.0));
             p.circle_filled(c, 7.0 * z, m(tint(accent, 0.18)));

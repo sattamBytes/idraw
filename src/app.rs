@@ -104,6 +104,31 @@ enum Drag {
     Bend(u64),
 }
 
+/// A boundary style the user saved locally (shown in the library's Boundaries section).
+#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct CustomBoundary {
+    pub name: String,
+    pub icon: String,
+    pub color: Color32,
+    pub dashed: bool,
+}
+
+pub(crate) struct BoundEditor {
+    idx: Option<usize>,
+    b: CustomBoundary,
+    query: String,
+}
+
+fn region_element(name: &str, icon: &str, color: Color32, dashed: bool, at: Pos2) -> Element {
+    let mut e = Element::new(Kind::Region, Rect::from_center_size(at, vec2(440.0, 300.0)));
+    e.text = name.into();
+    e.icon = icon.into();
+    e.style.stroke = color;
+    e.style.fill = color.gamma_multiply(if dashed { 0.05 } else { 0.08 });
+    e.style.dashed = dashed;
+    e
+}
+
 /// Quick component chooser: `/` at the cursor, or after dropping a connector on empty canvas.
 pub(crate) struct Picker {
     world: Pos2,
@@ -171,6 +196,9 @@ pub struct App {
     join_addr: String,
     join_code: String,
     my_name: String,
+    custom_bounds: Vec<CustomBoundary>,
+    bound_editor: Option<BoundEditor>,
+    lib_custom: usize,
 }
 
 impl App {
@@ -239,6 +267,9 @@ impl App {
             join_addr: String::new(),
             join_code: String::new(),
             my_name,
+            custom_bounds: st.and_then(|s| s.get_string("boundaries")).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
+            bound_editor: None,
+            lib_custom: 0,
         }
     }
 
@@ -427,16 +458,18 @@ impl App {
         });
         self.tool = Tool::Select;
         if let Some(b) = icons::BOUNDARIES.iter().find(|b| b.0 == icon) {
-            let mut e = Element::new(Kind::Region, Rect::from_center_size(at, vec2(440.0, 300.0)));
-            let c = icons::boundary_color(b.3);
-            e.text = b.1.into();
-            e.icon = b.2.into();
-            e.style.stroke = c;
-            e.style.fill = c.gamma_multiply(if b.4 { 0.05 } else { 0.08 });
-            e.style.dashed = b.4;
-            return self.add_select(e);
+            return self.add_select(region_element(b.1, b.2, icons::boundary_color(b.3), b.4, at));
         }
         self.add_select(Element::node(icon, at))
+    }
+
+    fn insert_custom_boundary(&mut self, i: usize) {
+        let Some(b) = self.custom_bounds.get(i).cloned() else { return };
+        self.checkpoint();
+        self.cascade = (self.cascade + 24.0) % 168.0;
+        let at = self.view_center() + vec2(self.cascade, self.cascade);
+        self.tool = Tool::Select;
+        self.add_select(region_element(&b.name, &b.icon, b.color, b.dashed, at));
     }
 
     fn set_icon(&mut self, icon: &str) {
@@ -445,6 +478,12 @@ impl App {
             return;
         }
         self.checkpoint();
+        // regions: just swap the header icon
+        for id in self.sel.clone() {
+            if let Some(e) = self.doc.get_mut(id).filter(|e| e.kind == Kind::Region) {
+                e.icon = icon.to_string();
+            }
+        }
         for id in self.sel.clone() {
             if let Some(e) = self.doc.get_mut(id).filter(|e| e.kind == Kind::Node) {
                 let old = icons::find(&e.icon).map(|o| o.label);
@@ -1380,6 +1419,7 @@ impl eframe::App for App {
         }
         storage.set_string("dark", if self.dark { "1" } else { "0" }.into());
         storage.set_string("name", self.my_name.clone());
+        storage.set_string("boundaries", serde_json::to_string(&self.custom_bounds).unwrap_or_default());
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -1505,6 +1545,7 @@ impl eframe::App for App {
 
         let animating = self.anim.is_some() || (self.playing && self.doc.elements.iter().any(|e| e.kind == Kind::Arrow && (e.style.flow != Flow::None || (self.failures && e.failover))));
         self.mode_bars(ctx);
+        self.boundary_editor(ctx);
         if animating {
             ctx.request_repaint();
         }

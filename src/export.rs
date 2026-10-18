@@ -244,6 +244,21 @@ fn node(o: &mut String, c: &Ctx, e: &Element) {
     let rect = |o: &mut String, rr: Rect, extra: &str| {
         let _ = write!(o, r#"<rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" rx="12" {} {border} {extra}/>"#, rr.min.x, rr.min.y, rr.width(), rr.height(), paint("fill", card));
     };
+    if let Some(nr) = node_extras(e).notes {
+        let _ = write!(
+            o,
+            r#"<rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" rx="10" {} stroke="{}" stroke-width="1" filter="url(#sh)"/>"#,
+            nr.min.x,
+            nr.min.y,
+            nr.width(),
+            nr.height(),
+            paint("fill", c.m(tint(accent, 0.05))),
+            hex(c.m(CARD_BORDER))
+        );
+        let lines = node_notes(e);
+        let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
+        text(o, c.font(), &refs, nr.min.x + NOTE_PAD, nr.min.y + NOTE_TUCK + NOTE_PAD, NOTE_SIZE, false, c.m(Color32::from_rgb(0x4b, 0x55, 0x63)), 0.0);
+    }
     for k in (1..e.replicas.min(3)).rev() {
         rect(o, r.translate(vec2(6.0, 6.0) * k as f32), "");
     }
@@ -277,7 +292,7 @@ fn node(o: &mut String, c: &Ctx, e: &Element) {
     if let (true, Some(cap)) = (e.show_cap, e.cap) {
         let b = cap.badge();
         let w = est_w(&b, 10.5) + 12.0;
-        let top = r.max.y + node_extras(e).0;
+        let top = node_extras(e).badge_top;
         let _ = write!(
             o,
             r#"<rect x="{:.1}" y="{top:.1}" width="{w:.1}" height="18" rx="4" {} stroke="{}" stroke-width="1"/>"#,
@@ -287,11 +302,7 @@ fn node(o: &mut String, c: &Ctx, e: &Element) {
         );
         text(o, "Menlo, monospace", &[&b], r.center().x, top + 1.0, 10.5, false, c.m(MUTED), 0.5);
     }
-    if e.show_notes && !e.notes.trim().is_empty() {
-        let lines = node_notes(e);
-        let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
-        text(o, c.font(), &refs, r.center().x, r.max.y + node_extras(e).1, NOTE_SIZE, false, c.m(MUTED), 0.5);
-    }
+
 }
 
 fn arrow(o: &mut String, c: &Ctx, e: &Element) {

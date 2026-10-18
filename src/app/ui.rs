@@ -55,6 +55,37 @@ fn lib_tile(ui: &mut Ui, icons: &mut Icons, it: &icons::Icon) -> Response {
     resp.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::Grab)
 }
 
+fn custom_tile(ui: &mut Ui, icons: &mut Icons, b: &CustomBoundary) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(62.0, 66.0), Sense::click());
+    if resp.hovered() {
+        ui.painter().rect_filled(rect, CornerRadius::same(8), theme::hover());
+    }
+    let tile = Rect::from_center_size(pos2(rect.center().x, rect.min.y + 22.0), vec2(34.0, 34.0));
+    ui.painter().rect(tile, CornerRadius::same(9), b.color.gamma_multiply(0.08), Stroke::new(1.2, b.color), StrokeKind::Inside);
+    if let Some(t) = icons.get(ui.ctx(), &b.icon) {
+        ui.painter().image(t, tile.shrink(8.0), render::UV, b.color);
+    }
+    let label = if b.name.chars().count() > 11 { format!("{}…", b.name.chars().take(10).collect::<String>()) } else { b.name.clone() };
+    ui.painter().text(pos2(rect.center().x, rect.max.y - 9.0), Align2::CENTER_CENTER, label, FontId::proportional(10.5), theme::text());
+    resp.on_hover_text(format!("{}\nYour boundary · right-click to edit", b.name))
+}
+
+fn new_tile(ui: &mut Ui, icons: &mut Icons) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(62.0, 66.0), Sense::click());
+    if resp.hovered() {
+        ui.painter().rect_filled(rect, CornerRadius::same(8), theme::hover());
+    }
+    let tile = Rect::from_center_size(pos2(rect.center().x, rect.min.y + 22.0), vec2(34.0, 34.0));
+    let mut pts = rounded_rect(tile, 9.0);
+    pts.push(pts[0]);
+    ui.painter().extend(egui::Shape::dashed_line(&pts, Stroke::new(1.2, theme::muted()), 4.0, 3.0));
+    if let Some(t) = icons.get(ui.ctx(), "plus") {
+        ui.painter().image(t, tile.shrink(9.0), render::UV, theme::muted());
+    }
+    ui.painter().text(pos2(rect.center().x, rect.max.y - 9.0), Align2::CENTER_CENTER, "New…", FontId::proportional(10.5), theme::text());
+    resp.on_hover_text("Create your own boundary style")
+}
+
 fn section(ui: &mut Ui, title: &str) {
     ui.add_space(6.0);
     ui.label(RichText::new(title).size(11.0).color(theme::muted()).strong());
@@ -318,6 +349,7 @@ impl App {
                 });
                 ui.add_space(2.0);
                 let q = self.lib_query.clone();
+                let (mut custom_pick, mut custom_edit, mut custom_del, mut custom_new) = (None, None, None, false);
                 egui::ScrollArea::vertical().max_height(h).show(ui, |ui| {
                     for cat in icons::categories() {
                         if self.lib_filter.is_some_and(|f| f != cat) || (self.replace_icon && cat == "Boundaries") {
@@ -340,9 +372,47 @@ impl App {
                                     self.lib_drag = Some(it.id);
                                 }
                             }
+                            if cat == "Boundaries" && !self.replace_icon {
+                                for (i, b) in self.custom_bounds.clone().iter().enumerate() {
+                                    if !q.is_empty() && !matches(&q, &b.name) {
+                                        continue;
+                                    }
+                                    let r = custom_tile(ui, &mut self.icons, b);
+                                    if r.clicked() {
+                                        custom_pick = Some(i);
+                                    }
+                                    r.context_menu(|ui| {
+                                        if ui.button("Edit…").clicked() {
+                                            custom_edit = Some(i);
+                                            ui.close_menu();
+                                        }
+                                        if ui.button("Delete").clicked() {
+                                            custom_del = Some(i);
+                                            ui.close_menu();
+                                        }
+                                    });
+                                }
+                                if q.is_empty() && new_tile(ui, &mut self.icons).clicked() {
+                                    custom_new = true;
+                                }
+                            }
                         });
                     }
                 });
+                if let Some(i) = custom_pick {
+                    pick = Some("::custom");
+                    self.lib_custom = i;
+                }
+                if let Some(i) = custom_edit {
+                    let b = self.custom_bounds[i].clone();
+                    self.bound_editor = Some(BoundEditor { idx: Some(i), b, query: String::new() });
+                }
+                if let Some(i) = custom_del {
+                    self.custom_bounds.remove(i);
+                }
+                if custom_new {
+                    self.bound_editor = Some(BoundEditor { idx: None, b: CustomBoundary { name: "My boundary".into(), icon: "folder".into(), color: theme::INDIGO, dashed: true }, query: String::new() });
+                }
                 ui.add_space(2.0);
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Click or drag to add ·").small().color(theme::muted()));
@@ -354,6 +424,7 @@ impl App {
         });
         match pick {
             Some("::icons-folder") => self.run(ctx, "icons-folder"),
+            Some("::custom") => self.insert_custom_boundary(self.lib_custom),
             Some(id) if self.replace_icon => self.set_icon(id),
             Some(id) => {
                 self.insert_icon(id, None);
@@ -501,12 +572,8 @@ impl App {
                                 e.notes = notes;
                             }
                         }
-                        let mut show = first.show_notes;
-                        if ui.checkbox(&mut show, "Show under the component").changed() {
+                        if let Some(show) = seg(ui, first.show_notes, &[(false, "On hover"), (true, "Always visible")]) {
                             change = Some(Box::new(move |e| e.show_notes = show));
-                        }
-                        if !first.notes.is_empty() && !first.show_notes {
-                            ui.label(RichText::new("Hover the component to read them").small().color(theme::muted()));
                         }
                     }
                     if has(&[Kind::Node]) {
@@ -561,6 +628,20 @@ impl App {
                             action = "icon";
                         }
                     }
+                    if has(&[Kind::Region]) && self.sel.len() == 1 {
+                        section(ui, "Header icon");
+                        ui.horizontal(|ui| {
+                            if ui.button("Change icon…").clicked() {
+                                action = "icon";
+                            }
+                            if !first.icon.is_empty() && ui.button("Remove").clicked() {
+                                change = Some(Box::new(|e| e.icon.clear()));
+                            }
+                        });
+                        if ui.button("Save as my boundary…").on_hover_text("Reuse this style from the library").clicked() {
+                            action = "save-boundary";
+                        }
+                    }
                     section(ui, "Arrange");
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 2.0;
@@ -602,6 +683,10 @@ impl App {
             "dup" => self.duplicate(),
             "del" => self.delete_selected(),
             "layout" => self.auto_layout(false),
+            "save-boundary" => {
+                let b = CustomBoundary { name: node_text(&first.text).0.to_string(), icon: first.icon.clone(), color: first.style.stroke, dashed: first.style.dashed };
+                self.bound_editor = Some(BoundEditor { idx: None, b, query: String::new() });
+            }
             _ => {}
         }
     }
@@ -784,6 +869,102 @@ impl App {
                     self.export(ctx, "gif", Some(i));
                 }
             }
+            _ => {}
+        }
+    }
+
+    /// Create / edit a custom boundary: name, header icon, color, line style, live preview.
+    pub(super) fn boundary_editor(&mut self, ctx: &Context) {
+        let Some(ed) = &mut self.bound_editor else { return };
+        let mut act = "";
+        egui::Area::new(Id::new("bound-editor")).anchor(Align2::CENTER_CENTER, vec2(-self.code_w / 2.0, 0.0)).order(Order::Foreground).show(ctx, |ui| {
+            panel().inner_margin(Margin::same(16)).show(ui, |ui| {
+                ui.set_width(380.0);
+                ui.label(RichText::new(if ed.idx.is_some() { "Edit boundary" } else { "New boundary" }).strong().size(15.0));
+                ui.add_space(6.0);
+                // live preview
+                let (pr, _) = ui.allocate_exact_size(vec2(380.0, 86.0), Sense::hover());
+                let box_r = pr.shrink2(vec2(30.0, 8.0));
+                let p = ui.painter();
+                p.rect_filled(box_r, CornerRadius::same(14), ed.b.color.gamma_multiply(if ed.b.dashed { 0.05 } else { 0.08 }));
+                let mut pts = rounded_rect(box_r, 14.0);
+                pts.push(pts[0]);
+                if ed.b.dashed {
+                    p.extend(egui::Shape::dashed_line(&pts, Stroke::new(1.5, ed.b.color), 8.0, 6.0));
+                } else {
+                    p.add(egui::Shape::line(pts, Stroke::new(1.5, ed.b.color)));
+                }
+                if let Some(t) = self.icons.get(ctx, &ed.b.icon) {
+                    p.image(t, Rect::from_min_size(box_r.min + vec2(14.0, 10.0), vec2(16.0, 16.0)), render::UV, ed.b.color);
+                }
+                p.text(box_r.min + vec2(36.0, 10.0), Align2::LEFT_TOP, &ed.b.name, render::font(13.0, true, false), ed.b.color);
+                ui.add_space(6.0);
+                ui.label(RichText::new("Name").size(11.0).color(theme::muted()).strong());
+                ui.add(TextEdit::singleline(&mut ed.b.name).desired_width(f32::INFINITY));
+                ui.label(RichText::new("Color").size(11.0).color(theme::muted()).strong());
+                ui.horizontal_wrapped(|ui| {
+                    for c in super::STROKES.iter().chain(&[Color32::from_rgb(0x02, 0x84, 0xc7), Color32::from_rgb(0x47, 0x55, 0x69), Color32::from_rgb(0x7c, 0x3a, 0xed)]) {
+                        if swatch(ui, *c, ed.b.color == *c).clicked() {
+                            ed.b.color = *c;
+                        }
+                    }
+                    egui::color_picker::color_edit_button_srgba(ui, &mut ed.b.color, egui::color_picker::Alpha::Opaque);
+                });
+                ui.label(RichText::new("Border").size(11.0).color(theme::muted()).strong());
+                if let Some(d) = seg(ui, ed.b.dashed, &[(true, "Dashed"), (false, "Solid")]) {
+                    ed.b.dashed = d;
+                }
+                ui.label(RichText::new("Header icon").size(11.0).color(theme::muted()).strong());
+                ui.add(TextEdit::singleline(&mut ed.query).hint_text("Search icons…").desired_width(f32::INFINITY));
+                let q = ed.query.clone();
+                egui::ScrollArea::vertical().max_height(150.0).show(ui, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing = vec2(3.0, 3.0);
+                        let list = icons::all().iter().filter(|i| !matches!(i.cat, "ui" | "Boundaries") && !i.color && (q.is_empty() || matches(&q, &format!("{} {} {}", i.id, i.label, i.cat))));
+                        let mut seen: Vec<&str> = vec![];
+                        for i in list {
+                            if seen.contains(&i.svg) {
+                                continue; // service icons reuse glyphs; show each look once
+                            }
+                            seen.push(i.svg);
+                            let (r, resp) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::click());
+                            let on = ed.b.icon == i.id;
+                            if on || resp.hovered() {
+                                ui.painter().rect_filled(r, CornerRadius::same(7), if on { theme::active_bg() } else { theme::hover() });
+                            }
+                            if let Some(t) = self.icons.get(ctx, i.id) {
+                                ui.painter().image(t, r.shrink(8.0), render::UV, if on { ed.b.color } else { theme::text() });
+                            }
+                            if resp.on_hover_text(i.label).clicked() {
+                                ed.b.icon = i.id.to_string();
+                            }
+                        }
+                    });
+                });
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.add(egui::Button::new(RichText::new("Save").color(Color32::WHITE).strong()).fill(theme::INDIGO).min_size(vec2(90.0, 30.0))).clicked() {
+                        act = "save";
+                    }
+                    if ui.button("Cancel").clicked() {
+                        act = "cancel";
+                    }
+                    ui.label(RichText::new("Saved on this Mac · appears under Boundaries").small().color(theme::muted()));
+                });
+            });
+        });
+        match act {
+            "save" => {
+                let ed = self.bound_editor.take().unwrap();
+                match ed.idx {
+                    Some(i) => self.custom_bounds[i] = ed.b,
+                    None => self.custom_bounds.push(ed.b),
+                }
+                self.library = true;
+                self.lib_filter = Some("Boundaries");
+                self.toast(ctx, "Boundary saved to your library");
+            }
+            "cancel" => self.bound_editor = None,
             _ => {}
         }
     }

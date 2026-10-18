@@ -1049,28 +1049,37 @@ pub fn wrap(text: &str, max_chars: usize) -> Vec<String> {
     out
 }
 
-/// Notes wrapped to the card's width.
+/// How far the notes card tucks under its component, and its inner padding.
+pub const NOTE_TUCK: f32 = 10.0;
+pub const NOTE_PAD: f32 = 10.0;
+
+/// Notes wrapped to the notes card's width.
 pub fn node_notes(e: &Element) -> Vec<String> {
-    wrap(&e.notes, ((e.rect.width() - 8.0) / (NOTE_SIZE * 0.55)).max(12.0) as usize)
+    wrap(&e.notes, ((e.rect.width() - 12.0 - 2.0 * NOTE_PAD) / (NOTE_SIZE * 0.48)).max(12.0) as usize)
 }
 
-/// Offset below the card where extras start (replica stack), then badge, then notes.
-pub fn node_extras(e: &Element) -> (f32, f32) {
+/// Things hanging below a component (world coords): the notes card, then the capacity badge.
+pub struct NodeExtras {
+    pub notes: Option<Rect>,
+    pub badge_top: f32,
+}
+
+pub fn node_extras(e: &Element) -> NodeExtras {
     let stack = 6.0 * (e.replicas.max(1).min(3) - 1) as f32;
-    let badge_top = stack + 8.0;
-    let notes_top = badge_top + if e.show_cap && e.cap.is_some() { 26.0 } else { 0.0 };
-    (badge_top, notes_top)
+    let mut y = e.rect.max.y + stack;
+    let notes = (e.show_notes && !e.notes.trim().is_empty()).then(|| {
+        let h = NOTE_TUCK + 2.0 * NOTE_PAD + node_notes(e).len() as f32 * NOTE_SIZE * LINE_H;
+        let r = Rect::from_min_max(pos2(e.rect.min.x + 6.0, y - NOTE_TUCK), pos2(e.rect.max.x - 6.0, y - NOTE_TUCK + h));
+        y = r.max.y;
+        r
+    });
+    NodeExtras { notes, badge_top: y + 8.0 }
 }
 
 fn node_below_height(e: &Element) -> f32 {
-    let (badge, notes) = node_extras(e);
-    if e.show_notes && !e.notes.trim().is_empty() {
-        notes + node_notes(e).len() as f32 * NOTE_SIZE * LINE_H + 4.0
-    } else if e.show_cap && e.cap.is_some() {
-        badge + 22.0
-    } else {
-        0.0
-    }
+    let x = node_extras(e);
+    let bottom = if e.show_cap && e.cap.is_some() { x.badge_top + 22.0 } else { x.notes.map_or(e.rect.max.y, |r| r.max.y) };
+    bottom - e.rect.max.y
 }
 
 pub const NODE_TITLE: f32 = 14.0;
