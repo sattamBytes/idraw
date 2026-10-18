@@ -192,19 +192,35 @@ pub fn bytes_gb(gb: f32) -> String {
 pub struct End {
     pub id: Option<u64>,
     pub p: Pos2,
-    /// Side the end is pinned to (0 top, 1 right, 2 bottom, 3 left); None = pick automatically.
+    /// Connection point the end is pinned to (see `slot_side`); None = pick automatically.
     #[serde(default)]
     pub side: Option<u8>,
 }
 
-/// Midpoint of a shape's side (0 top, 1 right, 2 bottom, 3 left).
+/// Connection points per shape: 3 on each side.
+pub const SLOTS: u8 = 12;
+
+/// Slot -> (side 0 top / 1 right / 2 bottom / 3 left, fraction along that side).
+/// Slots 0-3 are the side midpoints (also what older files stored); 4-11 the quarter points.
+pub fn slot_side(i: u8) -> (u8, f32) {
+    if i < 4 {
+        (i, 0.5)
+    } else {
+        let k = (i - 4) % 8;
+        (k / 2, if k % 2 == 0 { 0.25 } else { 0.75 })
+    }
+}
+
+/// Position of a connection slot on a shape's outline.
 pub fn side_point(r: Rect, i: u8) -> Pos2 {
-    let c = r.center();
-    match i {
-        0 => pos2(c.x, r.min.y),
-        1 => pos2(r.max.x, c.y),
-        2 => pos2(c.x, r.max.y),
-        _ => pos2(r.min.x, c.y),
+    let (s, t) = slot_side(i);
+    let lx = r.min.x + r.width() * t;
+    let ly = r.min.y + r.height() * t;
+    match s {
+        0 => pos2(lx, r.min.y),
+        1 => pos2(r.max.x, ly),
+        2 => pos2(lx, r.max.y),
+        _ => pos2(r.min.x, ly),
     }
 }
 
@@ -633,7 +649,10 @@ fn sides(r: Rect, bound: bool, pin: Option<u8>) -> Vec<(Pos2, Vec2)> {
         return vec![(r.center(), Vec2::ZERO)];
     }
     let dirs = [vec2(0.0, -1.0), vec2(1.0, 0.0), vec2(0.0, 1.0), vec2(-1.0, 0.0)];
-    (0..4u8).filter(|i| pin.is_none_or(|p| p == *i)).map(|i| (side_point(r, i), dirs[i as usize])).collect()
+    match pin {
+        Some(p) => vec![(side_point(r, p), dirs[slot_side(p).0 as usize])],
+        None => (0..4u8).map(|i| (side_point(r, i), dirs[i as usize])).collect(),
+    }
 }
 
 /// Picks the cheapest right-angle route over all side pairs and L/Z shapes:
@@ -1311,6 +1330,19 @@ mod tests {
         // clicking the connector itself while at a goes a -> b
         let s = d.steps_from_picks(&[a, ab], None);
         assert_eq!((s[0].from, s[0].to, s[0].edge), (a, b, Some(ab)));
+    }
+
+    #[test]
+    fn twelve_slots_cover_all_sides() {
+        let r = Rect::from_min_size(pos2(0., 0.), vec2(100., 40.));
+        assert_eq!(side_point(r, 0), pos2(50., 0.)); // legacy midpoint still works
+        assert_eq!(side_point(r, 4), pos2(25., 0.));
+        assert_eq!(side_point(r, 5), pos2(75., 0.));
+        assert_eq!(side_point(r, 7), pos2(100., 30.));
+        let pts: Vec<Pos2> = (0..SLOTS).map(|i| side_point(r, i)).collect();
+        for (i, a) in pts.iter().enumerate() {
+            assert!(pts.iter().skip(i + 1).all(|b| b != a), "slots are distinct");
+        }
     }
 
     #[test]

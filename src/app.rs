@@ -49,6 +49,9 @@ const STROKES: [Color32; 8] = [
     Color32::from_rgb(0xdb, 0x27, 0x77),
     Color32::from_rgb(0x0d, 0x94, 0x88),
 ];
+/// Hit radius (px) of a connection dot.
+const ANCHOR_HIT: f32 = 11.0;
+
 const FILLS: [Color32; 8] = [
     Color32::TRANSPARENT,
     Color32::WHITE,
@@ -207,6 +210,8 @@ pub struct App {
     autosave: bool,
     last_saved: String,
     autosave_check: f64,
+    /// connector started by clicking a connection dot; follows the mouse until the next click
+    pending_arrow: Option<(u64, u64)>,
 }
 
 impl App {
@@ -283,6 +288,7 @@ impl App {
             autosave: st.and_then(|s| s.get_string("autosave")).map(|v| v != "0").unwrap_or(true),
             last_saved: String::new(),
             autosave_check: 0.0,
+            pending_arrow: None,
         }
     }
 
@@ -631,6 +637,13 @@ impl App {
             "del" => self.delete_selected(),
             "palette" => self.palette = Some(Palette { query: String::new(), sel: 0, focus: true }),
             "esc" => {
+                if let Some((id, _)) = self.pending_arrow.take() {
+                    self.doc.remove(&[id]);
+                    self.undo.pop();
+                    self.sel.clear();
+                    self.drop_target = None;
+                    return;
+                }
                 if std::mem::take(&mut self.failures) {
                     return;
                 }
@@ -888,14 +901,44 @@ impl App {
         }
     }
 
+    /// Cursor for the select tool: what would happen if you pressed here.
+    fn select_cursor(&self, hover: Option<Pos2>) -> egui::CursorIcon {
+        use egui::CursorIcon as C;
+        let resize = |h: usize| [C::ResizeNwSe, C::ResizeVertical, C::ResizeNeSw, C::ResizeHorizontal][h % 4];
+        match &self.drag {
+            Drag::Move { .. } | Drag::Bend(_) => return C::Move,
+            Drag::Resize { handle, .. } => return resize(*handle),
+            Drag::ArrowEnd { .. } => return C::Crosshair,
+            Drag::Marquee(_) => return C::Default,
+            _ => {}
+        }
+        if self.pending_arrow.is_some() {
+            return C::Crosshair;
+        }
+        let Some(h) = hover else { return C::Default };
+        if self.anchor_at(h).is_some() {
+            return C::Crosshair;
+        }
+        if let Some(e) = self.single_box() {
+            if let Some(i) = Self::handles(self.view().rect(e.rect)).iter().position(|p| p.distance(h) < 8.0) {
+                return resize(i);
+            }
+        }
+        match self.doc.hit(self.view().s2w(h), 6.0 / self.zoom).and_then(|id| self.doc.get(id)) {
+            Some(e) if e.kind == Kind::Arrow && e.from.id.is_none() && e.to.id.is_none() => C::Move,
+            Some(_) => C::Move,
+            None => C::Default,
+        }
+    }
+
     /// Shape (and side, if a side dot is under the pointer) a connector end would attach to.
     fn drop_at(&self, w: Pos2, skip: Option<u64>) -> (Option<u64>, Option<u8>) {
-        let snap = 18.0 / self.zoom;
+        let snap = 14.0 / self.zoom;
         for e in self.doc.elements.iter().rev().filter(|e| e.bindable() && Some(e.id) != skip) {
             if !e.rect.expand(snap).contains(w) {
                 continue;
             }
-            let (i, d) = (0..4u8).map(|i| (i, side_point(e.rect, i).distance(w))).min_by(|a, b| a.1.total_cmp(&b.1)).unwrap();
+            let (i, d) = (0..SLOTS).map(|i| (i, side_point(e.rect, i).distance(w))).min_by(|a, b| a.1.total_cmp(&b.1)).unwrap();
             if d < snap {
                 return (Some(e.id), Some(i));
             }
@@ -907,13 +950,34 @@ impl App {
     }
 
     /// Connection anchors (screen) around a shape, offset outward.
-    fn anchors(&self, id: u64) -> Vec<(Pos2, Pos2)> {
+    /// Connection dots (screen): (dot, point on the outline, slot). 3 per side, just outside the shape.
+    fn anchors(&self, id: u64) -> Vec<(Pos2, Pos2, u8)> {
         let v = self.view();
         let Some(e) = self.doc.get(id).filter(|e| e.bindable()) else { return vec![] };
-        let r = v.rect(e.rect);
-        let c = r.center();
-        let o = 16.0;
-        vec![(pos2(c.x, r.min.y - o), pos2(c.x, r.min.y)), (pos2(r.max.x + o, c.y), pos2(r.max.x, c.y)), (pos2(c.x, r.max.y + o), pos2(c.x, r.max.y)), (pos2(r.min.x - o, c.y), pos2(r.min.x, c.y))]
+        let normals = [vec2(0.0, -1.0), vec2(1.0, 0.0), vec2(0.0, 1.0), vec2(-1.0, 0.0)];
+        (0..SLOTS)
+            .map(|i| {
+                let edge = v.w2s(side_point(e.rect, i));
+                (edge + normals[slot_side(i).0 as usize] * 13.0, edge, i)
+            })
+            .collect()
+    }
+
+    /// Connection dot under screen point `sp` on the hovered shape: (shape, slot).
+    fn anchor_at(&self, sp: Pos2) -> Option<(u64, u8)> {
+        let src = self.hover_shape?;
+        self.anchors(src).into_iter().filter(|(a, _, _)| a.distance(sp) < ANCHOR_HIT).min_by(|x, y| x.0.distance(sp).total_cmp(&y.0.distance(sp))).map(|(_, _, i)| (src, i))
+    }
+
+    fn start_connector(&mut self, src: u64, slot: u8, w: Pos2) -> u64 {
+        self.checkpoint();
+        let mut a = Element::new(Kind::Arrow, Rect::ZERO);
+        // the dot you grabbed is where the connector leaves from
+        a.from = End { id: Some(src), p: w, side: Some(slot) };
+        a.to = End { id: None, p: w, side: None };
+        let id = self.doc.add(a);
+        self.sel = vec![id];
+        id
     }
 
     /// Connector whose label pill is under `w`.
@@ -953,18 +1017,10 @@ impl App {
                 }
             }
         }
-        if let Some(src) = self.hover_shape {
-            if let Some(i) = self.anchors(src).iter().position(|(a, _)| a.distance(sp) < 9.0) {
-                self.checkpoint();
-                let mut a = Element::new(Kind::Arrow, Rect::ZERO);
-                // the dot you grabbed is the side the connector leaves from
-                a.from = End { id: Some(src), p: w, side: Some(i as u8) };
-                a.to = End { id: None, p: w, side: None };
-                let id = self.doc.add(a);
-                self.sel = vec![id];
-                self.drag = Drag::ArrowEnd { id, to: true, source: Some(src) };
-                return;
-            }
+        if let Some((src, slot)) = self.anchor_at(sp) {
+            let id = self.start_connector(src, slot, w);
+            self.drag = Drag::ArrowEnd { id, to: true, source: Some(src) };
+            return;
         }
         let hit = self.doc.hit(w, 6.0 / self.zoom);
         // dragging a connected line reshapes it instead of moving it
@@ -1100,6 +1156,28 @@ impl App {
             return;
         }
         if presenting {
+            if resp.dragged() {
+                self.offset += resp.drag_delta();
+            }
+            return;
+        }
+        // connector started by a click: it follows the mouse; the next click places it
+        if let Some((id, src)) = self.pending_arrow {
+            let w = v.s2w(hover.unwrap_or_default());
+            let (t, side) = self.drop_at(w, Some(src));
+            self.drop_target = t;
+            self.drop_side = side;
+            if let Some(e) = self.doc.get_mut(id) {
+                e.to = End { id: t, p: w, side };
+            }
+            if resp.clicked() || resp.drag_started() {
+                self.pending_arrow = None;
+                self.drop_target = None;
+                self.drop_side = None;
+                if t.is_none() {
+                    self.open_picker(hover.unwrap_or_default(), Some((id, src)));
+                }
+            }
             if resp.dragged() {
                 self.offset += resp.drag_delta();
             }
@@ -1309,10 +1387,18 @@ impl App {
         }
 
         if resp.clicked() {
-            let w = v.s2w(resp.interact_pointer_pos().unwrap_or_default());
+            let sp = resp.interact_pointer_pos().unwrap_or_default();
+            let w = v.s2w(sp);
             if self.editing.is_some() {
                 self.finish_edit();
                 return;
+            }
+            if self.tool == Tool::Select {
+                if let Some((src, slot)) = self.anchor_at(sp) {
+                    let id = self.start_connector(src, slot, w);
+                    self.pending_arrow = Some((id, src));
+                    return;
+                }
             }
             match self.tool {
                 Tool::Select | Tool::Hand | Tool::Arrow | Tool::Pen => match self.doc.hit(w, 6.0 / self.zoom) {
@@ -1408,10 +1494,10 @@ impl App {
             let r = v.rect(t.rect).expand(4.0);
             p.rect(r, CornerRadius::same(10), theme::INDIGO.gamma_multiply(0.06), Stroke::new(1.5, theme::INDIGO.gamma_multiply(0.7)), StrokeKind::Outside);
             // side dots: drop on one to pin that side, or on the body to let idraw choose
-            for i in 0..4u8 {
+            for i in 0..SLOTS {
                 let c = v.w2s(side_point(t.rect, i));
                 let hot = self.drop_side == Some(i);
-                p.circle(c, if hot { 7.5 } else { 5.5 }, if hot { theme::INDIGO } else { Color32::WHITE }, Stroke::new(2.0, theme::INDIGO));
+                p.circle(c, if hot { 7.0 } else { 4.5 }, if hot { theme::INDIGO } else { Color32::WHITE }, Stroke::new(1.8, theme::INDIGO));
             }
         }
         for id in &self.sel {
@@ -1452,12 +1538,12 @@ impl App {
                 p.rect(r, CornerRadius::same(2), theme::INDIGO.gamma_multiply(0.08), Stroke::new(1.0, theme::INDIGO), StrokeKind::Middle);
             }
         }
-        if let (Some(id), Drag::None, Tool::Select) = (self.hover_shape, &self.drag, self.tool) {
-            let hp = p.ctx().input(|i| i.pointer.hover_pos());
-            for (a, edge) in self.anchors(id) {
-                let hot = hp.is_some_and(|h| h.distance(a) < 9.0);
-                p.line_segment([edge, a], Stroke::new(1.0, theme::INDIGO.gamma_multiply(0.35)));
-                p.circle(a, if hot { 6.5 } else { 5.0 }, if hot { theme::INDIGO } else { Color32::WHITE }, Stroke::new(1.5, theme::INDIGO));
+        if let (Some(id), Drag::None, Tool::Select, None) = (self.hover_shape, &self.drag, self.tool, self.pending_arrow) {
+            let hot = p.ctx().input(|i| i.pointer.hover_pos()).and_then(|h| self.anchor_at(h)).map(|x| x.1);
+            for (a, edge, i) in self.anchors(id) {
+                let on = hot == Some(i);
+                p.line_segment([edge, a], Stroke::new(1.0, theme::INDIGO.gamma_multiply(0.3)));
+                p.circle(a, if on { 6.5 } else { 4.2 }, if on { theme::INDIGO } else { Color32::WHITE }, Stroke::new(1.5, theme::INDIGO));
             }
         }
         // scenario being recorded: numbered badges
@@ -1579,11 +1665,8 @@ impl eframe::App for App {
                 ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
             } else if matches!(self.drag, Drag::Label(_)) || resp.hover_pos().is_some_and(|h| self.label_hit(ctx, self.view().s2w(h)).is_some()) {
                 ctx.set_cursor_icon(if matches!(self.drag, Drag::Label(_)) { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
-            } else if matches!(self.drag, Drag::Bend(_))
-                || (matches!(self.drag, Drag::None)
-                    && resp.hover_pos().and_then(|h| self.doc.hit(self.view().s2w(h), 6.0 / self.zoom)).and_then(|id| self.doc.get(id)).is_some_and(|e| e.kind == Kind::Arrow && (e.from.id.is_some() || e.to.id.is_some())))
-            {
-                ctx.set_cursor_icon(egui::CursorIcon::Move);
+            } else {
+                ctx.set_cursor_icon(self.select_cursor(resp.hover_pos()));
             }
 
             let p = ui.painter_at(rect);
@@ -1669,6 +1752,8 @@ pub(crate) fn setup_style(ctx: &Context, dark: bool) {
     theme::set_dark(dark);
     let mut s = (*ctx.style()).clone();
     s.visuals = if dark { egui::Visuals::dark() } else { egui::Visuals::light() };
+    // hand cursor over every clickable button / menu item
+    s.visuals.interact_cursor = Some(egui::CursorIcon::PointingHand);
     s.visuals.selection.bg_fill = theme::INDIGO;
     s.visuals.selection.stroke = Stroke::new(1.0, Color32::WHITE);
     s.visuals.hyperlink_color = theme::INDIGO;
