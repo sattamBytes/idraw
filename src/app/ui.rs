@@ -97,7 +97,7 @@ fn section(ui: &mut Ui, title: &str) {
     ui.label(RichText::new(title).size(11.0).color(theme::muted()).strong());
 }
 
-fn swatch(ui: &mut Ui, c: Color32, selected: bool) -> Response {
+fn swatch(ui: &mut Ui, c: Color32, selected: bool, name: &str) -> Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
     let p = ui.painter();
     if selected {
@@ -109,7 +109,8 @@ fn swatch(ui: &mut Ui, c: Color32, selected: bool) -> Response {
     } else {
         p.rect(rect, CornerRadius::same(5), c, Stroke::new(1.0, Color32::from_black_alpha(20)), StrokeKind::Inside);
     }
-    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    if name.is_empty() { resp } else { resp.on_hover_text(name) }
 }
 
 fn seg<T: PartialEq + Copy>(ui: &mut Ui, cur: T, opts: &[(T, &str)]) -> Option<T> {
@@ -386,8 +387,15 @@ impl App {
                         if items.is_empty() {
                             continue;
                         }
-                        ui.add_space(4.0);
-                        ui.label(RichText::new(cat.to_uppercase()).size(10.5).color(theme::muted()).strong());
+                        // collapsible sections; provider catalogs start folded, searching opens everything
+                        let n = items.len() + if cat == "Boundaries" { self.custom_bounds.len() } else { 0 };
+                        let folded_by_default = matches!(cat, "AWS" | "Google Cloud" | "Azure" | "Cloudflare" | "Other clouds" | "Open source") || !icons::CATEGORIES.contains(&cat);
+                        let force_open = (!q.is_empty() || self.lib_filter.is_some()).then_some(true);
+                        egui::CollapsingHeader::new(RichText::new(format!("{}   {n}", cat.to_uppercase())).size(10.5).color(theme::muted()).strong())
+                            .id_salt(("lib-cat", cat))
+                            .default_open(!folded_by_default)
+                            .open(force_open)
+                            .show(ui, |ui| {
                         ui.horizontal_wrapped(|ui| {
                             ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
                             for it in items {
@@ -424,6 +432,7 @@ impl App {
                                 }
                             }
                         });
+                            });
                     }
                 });
                 if let Some(i) = custom_pick {
@@ -515,13 +524,14 @@ impl App {
                     if !has(&[Kind::Comment]) {
                         section(ui, if has(&[Kind::Node]) { "Accent" } else { "Stroke" });
                         ui.horizontal_wrapped(|ui| {
-                            for c in super::STROKES {
-                                if swatch(ui, c, s.stroke == c).clicked() {
+                            for (c, name) in super::STROKES {
+                                if swatch(ui, c, s.stroke == c, name).clicked() {
                                     change = Some(Box::new(move |e| e.style.stroke = c));
                                 }
                             }
                             let mut c = s.stroke;
-                            if egui::color_picker::color_edit_button_srgba(ui, &mut c, egui::color_picker::Alpha::Opaque).changed() {
+                            let r = egui::color_picker::color_edit_button_srgba(ui, &mut c, egui::color_picker::Alpha::Opaque).on_hover_text("Pick any color");
+                            if r.changed() {
                                 change = Some(Box::new(move |e| e.style.stroke = c));
                             }
                         });
@@ -529,10 +539,16 @@ impl App {
                     if has(&[Kind::Rect, Kind::Ellipse, Kind::Diamond, Kind::Region, Kind::Node, Kind::Sticky]) {
                         section(ui, "Background");
                         ui.horizontal_wrapped(|ui| {
-                            for c in super::FILLS {
-                                if swatch(ui, c, s.fill == c).clicked() {
+                            for (c, name) in super::FILLS {
+                                if swatch(ui, c, s.fill == c, name).clicked() {
                                     change = Some(Box::new(move |e| e.style.fill = if e.kind == Kind::Region && c.a() > 0 { c.gamma_multiply(0.35) } else { c }));
                                 }
+                            }
+                            // any fill color (with transparency for soft overlays)
+                            let mut c = s.fill;
+                            let r = egui::color_picker::color_edit_button_srgba(ui, &mut c, egui::color_picker::Alpha::OnlyBlend).on_hover_text("Pick any fill color");
+                            if r.changed() {
+                                change = Some(Box::new(move |e| e.style.fill = c));
                             }
                         });
                     }
@@ -723,7 +739,7 @@ impl App {
                     section(ui, "Arrange");
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 2.0;
-                        for (icon, tip, a) in [("front", "Bring to front", "front"), ("back", "Send to back", "back"), ("copy", "Duplicate  ⌘D", "dup"), ("trash", "Delete  ⌫", "del")] {
+                        for (icon, tip, a) in [("front", "Bring to front  ⇧⌘]  (right-click for more)", "front"), ("back", "Send to back  ⇧⌘[", "back"), ("copy", "Duplicate  ⌘D", "dup"), ("trash", "Delete  ⌫", "del")] {
                             if icon_button(ui, &mut self.icons, icon, false, tip).clicked() {
                                 action = a;
                             }
@@ -746,18 +762,8 @@ impl App {
                 self.library = true;
                 self.replace_icon = true;
             }
-            "front" | "back" => {
-                self.checkpoint();
-                let (mut picked, rest): (Vec<Element>, Vec<Element>) = std::mem::take(&mut self.doc.elements).into_iter().partition(|e| self.sel.contains(&e.id));
-                self.doc.elements = if action == "front" {
-                    let mut v = rest;
-                    v.append(&mut picked);
-                    v
-                } else {
-                    picked.extend(rest);
-                    picked
-                };
-            }
+            "front" => self.reorder(2),
+            "back" => self.reorder(-2),
             "dup" => self.duplicate(),
             "del" => self.delete_selected(),
             "layout" => self.auto_layout(false),
@@ -1038,9 +1044,9 @@ impl App {
                 ui.add(TextEdit::singleline(&mut ed.b.name).desired_width(f32::INFINITY));
                 ui.label(RichText::new("Color").size(11.0).color(theme::muted()).strong());
                 ui.horizontal_wrapped(|ui| {
-                    for c in super::STROKES.iter().chain(&[Color32::from_rgb(0x02, 0x84, 0xc7), Color32::from_rgb(0x47, 0x55, 0x69), Color32::from_rgb(0x7c, 0x3a, 0xed)]) {
-                        if swatch(ui, *c, ed.b.color == *c).clicked() {
-                            ed.b.color = *c;
+                    for (c, name) in super::STROKES {
+                        if swatch(ui, c, ed.b.color == c, name).clicked() {
+                            ed.b.color = c;
                         }
                     }
                     egui::color_picker::color_edit_button_srgba(ui, &mut ed.b.color, egui::color_picker::Alpha::Opaque);
@@ -1102,6 +1108,45 @@ impl App {
             "cancel" => self.bound_editor = None,
             _ => {}
         }
+    }
+
+    /// Right-click menu on the canvas (selection already updated to what was clicked).
+    pub(super) fn canvas_menu(&mut self, ui: &mut Ui) -> Option<&'static str> {
+        let mut act = None;
+        let mut item = |ui: &mut Ui, label: &str, key: &str, a: &'static str| {
+            if ui.add(egui::Button::new(label).shortcut_text(key).min_size(vec2(220.0, 24.0))).clicked() {
+                act = Some(a);
+                ui.close_menu();
+            }
+        };
+        if self.sel.is_empty() {
+            item(ui, "Paste", "⌘V", "paste");
+            item(ui, "Insert component here", "/", "picker-here");
+            ui.separator();
+            item(ui, "Select all", "⌘A", "all");
+            item(ui, "Auto-layout", "⇧⌘L", "layout");
+            item(ui, "Zoom to fit", "⇧1", "fit");
+            return act;
+        }
+        item(ui, "Bring to front", "⇧⌘]", "z-front");
+        item(ui, "Bring forward", "⌘]", "z-forward");
+        item(ui, "Send backward", "⌘[", "z-backward");
+        item(ui, "Send to back", "⇧⌘[", "z-back");
+        ui.separator();
+        item(ui, "Duplicate", "⌘D", "dup");
+        item(ui, "Copy", "⌘C", "copy");
+        item(ui, "Delete", "⌫", "del");
+        ui.separator();
+        item(ui, "Wrap in boundary", "⌘G", "group");
+        let one_node = self.sel.len() == 1 && self.doc.get(self.sel[0]).is_some_and(|e| e.kind == Kind::Node);
+        if one_node {
+            item(ui, "Change icon…", "", "icon");
+        }
+        if self.sel.len() == 1 && self.doc.get(self.sel[0]).is_some_and(|e| e.bindable()) {
+            item(ui, "Start a flow from here", "", "flow-sel");
+            item(ui, "Simulate outage…", "F", "failures");
+        }
+        act
     }
 
     /// Context bars for the pen tool and outage simulation.

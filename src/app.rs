@@ -39,28 +39,38 @@ pub(crate) const TOOLS: [(Tool, &str, &str, Key); 11] = [
     (Tool::Comment, "t-comment", "Comment  C", Key::C),
 ];
 
-const STROKES: [Color32; 8] = [
-    INK,
-    Color32::from_rgb(0xe0, 0x31, 0x31),
-    Color32::from_rgb(0x2f, 0x9e, 0x44),
-    Color32::from_rgb(0x19, 0x71, 0xc2),
-    Color32::from_rgb(0xf0, 0x8c, 0x00),
-    INDIGO,
-    Color32::from_rgb(0xdb, 0x27, 0x77),
-    Color32::from_rgb(0x0d, 0x94, 0x88),
+/// Stroke / text colors: each is dark enough (>= ~4.5:1) to read as label text on white and on the fills.
+pub(crate) const STROKES: [(Color32, &str); 12] = [
+    (INK, "Ink"),
+    (Color32::from_rgb(0x64, 0x74, 0x8b), "Slate"),
+    (Color32::from_rgb(0xdc, 0x26, 0x26), "Red"),
+    (Color32::from_rgb(0xc2, 0x41, 0x0c), "Orange"),
+    (Color32::from_rgb(0xb4, 0x53, 0x09), "Amber"),
+    (Color32::from_rgb(0x15, 0x80, 0x3d), "Green"),
+    (Color32::from_rgb(0x0f, 0x76, 0x6e), "Teal"),
+    (Color32::from_rgb(0x03, 0x69, 0xa1), "Sky"),
+    (Color32::from_rgb(0x25, 0x63, 0xeb), "Blue"),
+    (INDIGO, "Indigo"),
+    (Color32::from_rgb(0x7c, 0x3a, 0xed), "Violet"),
+    (Color32::from_rgb(0xdb, 0x27, 0x77), "Pink"),
 ];
 /// Hit radius (px) of a connection dot.
 const ANCHOR_HIT: f32 = 11.0;
 
-const FILLS: [Color32; 8] = [
-    Color32::TRANSPARENT,
-    Color32::WHITE,
-    Color32::from_rgb(0xff, 0xc9, 0xc9),
-    Color32::from_rgb(0xb2, 0xf2, 0xbb),
-    Color32::from_rgb(0xa5, 0xd8, 0xff),
-    Color32::from_rgb(0xff, 0xec, 0x99),
-    Color32::from_rgb(0xe0, 0xe7, 0xff),
-    Color32::from_rgb(0xf1, 0xf5, 0xf9),
+/// Soft fills (Tailwind 100-ish lightness): dark text stays readable on every one.
+pub(crate) const FILLS: [(Color32, &str); 12] = [
+    (Color32::TRANSPARENT, "No fill"),
+    (Color32::WHITE, "White"),
+    (Color32::from_rgb(0xf1, 0xf5, 0xf9), "Mist"),
+    (Color32::from_rgb(0xff, 0xe4, 0xe6), "Rose"),
+    (Color32::from_rgb(0xff, 0xed, 0xd5), "Peach"),
+    (Color32::from_rgb(0xfe, 0xf9, 0xc3), "Butter"),
+    (Color32::from_rgb(0xdc, 0xfc, 0xe7), "Mint"),
+    (Color32::from_rgb(0xcc, 0xfb, 0xf1), "Aqua"),
+    (Color32::from_rgb(0xe0, 0xf2, 0xfe), "Sky"),
+    (Color32::from_rgb(0xe0, 0xe7, 0xff), "Periwinkle"),
+    (Color32::from_rgb(0xed, 0xe9, 0xfe), "Lavender"),
+    (Color32::from_rgb(0xfc, 0xe7, 0xf3), "Blush"),
 ];
 
 /// (label, shortcut, action) for the command palette.
@@ -93,6 +103,10 @@ pub(crate) const COMMANDS: &[(&str, &str, &str)] = &[
     ("Duplicate", "⌘D", "dup"),
     ("Wrap selection in region", "⌘G", "group"),
     ("Toggle components library", "L", "lib"),
+    ("Bring to front", "⇧⌘]", "z-front"),
+    ("Bring forward", "⌘]", "z-forward"),
+    ("Send backward", "⌘[", "z-backward"),
+    ("Send to back", "⇧⌘[", "z-back"),
 ];
 
 enum Drag {
@@ -214,6 +228,8 @@ pub struct App {
     pending_arrow: Option<(u64, u64)>,
     /// window focus last frame, to re-send the cursor when idraw becomes active
     was_focused: bool,
+    /// where the last right-click happened (screen), for "insert here"
+    menu_at: Pos2,
 }
 
 impl App {
@@ -292,6 +308,7 @@ impl App {
             autosave_check: 0.0,
             pending_arrow: None,
             was_focused: true,
+            menu_at: Pos2::ZERO,
         }
     }
 
@@ -530,6 +547,37 @@ impl App {
         self.replace_icon = false;
     }
 
+    /// Layer order: 2 to front, 1 forward one step, -1 backward one step, -2 to back.
+    fn reorder(&mut self, how: i8) {
+        if self.sel.is_empty() {
+            return;
+        }
+        self.checkpoint();
+        let sel = self.sel.clone();
+        let is_sel = |e: &Element| sel.contains(&e.id);
+        let els = &mut self.doc.elements;
+        match how {
+            2 | -2 => {
+                let (picked, rest): (Vec<Element>, Vec<Element>) = std::mem::take(els).into_iter().partition(|e| is_sel(e));
+                *els = if how == 2 { rest.into_iter().chain(picked).collect() } else { picked.into_iter().chain(rest).collect() };
+            }
+            1 => {
+                for i in (0..els.len().saturating_sub(1)).rev() {
+                    if is_sel(&els[i]) && !is_sel(&els[i + 1]) {
+                        els.swap(i, i + 1);
+                    }
+                }
+            }
+            _ => {
+                for i in 1..els.len() {
+                    if is_sel(&els[i]) && !is_sel(&els[i - 1]) {
+                        els.swap(i, i - 1);
+                    }
+                }
+            }
+        }
+    }
+
     fn set_dark(&mut self, ctx: &Context, d: bool) {
         self.dark = d;
         setup_style(ctx, d);
@@ -641,6 +689,29 @@ impl App {
                 self.path = None;
             }
             "fit" => self.fit(),
+            "z-front" => self.reorder(2),
+            "z-forward" => self.reorder(1),
+            "z-backward" => self.reorder(-1),
+            "z-back" => self.reorder(-2),
+            "paste" => ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste),
+            "copy" => {
+                if !self.sel.is_empty() {
+                    ctx.copy_text(serde_json::to_string(&self.selected_snapshot()).unwrap_or_default());
+                }
+            }
+            "picker-here" => self.open_picker(self.menu_at, None),
+            "icon" => {
+                self.library = true;
+                self.replace_icon = true;
+            }
+            "flow-sel" => {
+                let first = self.sel.first().copied();
+                self.start_record();
+                if let (Some(id), Some((_, picks))) = (first, &mut self.rec) {
+                    picks.push(id);
+                }
+                self.scn_panel = true;
+            }
             "all" => self.sel = self.doc.elements.iter().map(|e| e.id).collect(),
             "dup" => self.duplicate(),
             "group" => self.group_region(),
@@ -828,6 +899,12 @@ impl App {
                 (Key::Minus, cmd, "zout"),
                 (Key::Num0, cmd, "z100"),
                 (Key::Num1, Modifiers::SHIFT, "fit"),
+                (Key::CloseCurlyBracket, shift_cmd, "z-front"),
+                (Key::CloseBracket, shift_cmd, "z-front"),
+                (Key::OpenCurlyBracket, shift_cmd, "z-back"),
+                (Key::OpenBracket, shift_cmd, "z-back"),
+                (Key::CloseBracket, cmd, "z-forward"),
+                (Key::OpenBracket, cmd, "z-backward"),
             ] {
                 if i.consume_key(m, k) {
                     act.push(name);
@@ -1215,6 +1292,23 @@ impl App {
             return;
         }
 
+        // right-click: select what's under the pointer, then show the context menu
+        if resp.secondary_clicked() {
+            let sp = resp.interact_pointer_pos().unwrap_or_default();
+            self.menu_at = sp;
+            let w = v.s2w(sp);
+            match self.label_hit(ctx, w).or_else(|| self.doc.hit(w, 6.0 / self.zoom)) {
+                Some(id) if !self.sel.contains(&id) => self.sel = vec![id],
+                Some(_) => {}
+                None => self.sel.clear(),
+            }
+        }
+        let mut menu_act = None;
+        resp.context_menu(|ui| menu_act = self.canvas_menu(ui));
+        if let Some(a) = menu_act {
+            self.run(ctx, a);
+            return;
+        }
         if resp.drag_started_by(PointerButton::Middle) || (resp.drag_started_by(PointerButton::Primary) && (space || self.tool == Tool::Hand)) {
             self.drag = Drag::Pan;
         } else if resp.drag_started_by(PointerButton::Primary) {
