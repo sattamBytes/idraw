@@ -3,6 +3,11 @@ name = "idraw"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+repository = "https://github.com/sattamBytes/idraw"
+homepage = "https://github.com/sattamBytes/idraw"
+readme = "README.md"
+keywords = ["diagram", "drawing", "system-design", "macos", "excalidraw"]
+categories = ["graphics", "visualization"]
 description = "Modern open-source diagramming for macOS, built for system design"
 
 [dependencies]

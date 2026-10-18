@@ -1,8 +1,40 @@
-# idraw
+<p align="center"><img src="docs/icon.png" width="128" alt="idraw icon"></p>
 
-A fast, modern, open-source diagramming app for macOS, written in Rust.
-It has Excalidraw's simplicity and draw.io's depth, and it's built first for **system design** diagrams.
+<h1 align="center">idraw</h1>
 
+<p align="center"><b>Diagrams that move.</b> A fast, open-source diagramming app for macOS, built for system design.<br>
+Excalidraw's simplicity, draw.io's depth, plus animated request flows you can export as GIFs.</p>
+
+<p align="center">
+  <a href="https://github.com/sattamBytes/idraw/releases/latest"><img src="https://img.shields.io/github/v/release/sattamBytes/idraw?label=download&color=6366f1" alt="Download"></a>
+  <img src="https://img.shields.io/badge/macOS-11%2B-black?logo=apple" alt="macOS 11+">
+  <img src="https://img.shields.io/badge/Apple%20Silicon%20%2B%20Intel-universal-555" alt="Universal">
+  <img src="https://img.shields.io/badge/built%20with-Rust-dea584?logo=rust" alt="Rust">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e" alt="MIT"></a>
+</p>
+
+<p align="center"><img src="docs/flow.gif" alt="A request flow playing through a hybrid-cloud diagram" width="820"></p>
+
+## Install
+
+**Homebrew**
+
+```bash
+brew install --cask sattamBytes/tap/idraw
+```
+
+**Or download** the latest `idraw-…-macos-universal.zip` from [Releases](https://github.com/sattamBytes/idraw/releases/latest), unzip it, and drag **idraw.app** into Applications.
+
+> **First launch:** idraw isn't notarized by Apple yet, so macOS may say it "can't be opened". Right-click idraw.app and choose **Open**, then **Open** again. You only have to do this once. Homebrew installs skip this step.
+
+**Or build from source** (Rust 1.85+):
+
+```bash
+git clone https://github.com/sattamBytes/idraw && cd idraw
+scripts/bundle.sh --install   # builds idraw.app into ~/Applications
+```
+
+<p align="center"><img src="docs/hero.png" alt="Hybrid-cloud system design diagram made in idraw" width="820"></p>
 
 ## Features
 
@@ -53,19 +85,15 @@ Payments [aws-lambda] (card processing) # optional [icon] and (subtitle)
 
 Names like S3, Lambda, BigQuery or Postgres get their icon automatically. Renaming a line renames the component.
 
-## Install (macOS)
+## Development
 
 ```bash
-scripts/bundle.sh --install
+cargo run --release -- examples/hybrid-cloud.idraw   # run with a sample diagram
+cargo test                                            # unit tests
+scripts/bundle.sh --universal                         # universal idraw.app + release zip in dist/
 ```
 
-That builds `idraw.app` (with its icon) and puts it in `~/Applications`, so it shows up in Spotlight and Launchpad. Run `scripts/bundle.sh` without `--install` to only build `dist/idraw.app`.
-
-For development:
-
-```bash
-cargo run --release -- examples/hybrid-cloud.idraw
-```
+Releases are built by GitHub Actions: push a tag like `v0.2.0` and the universal zip is attached to the GitHub release.
 
 ## Shortcuts
 
@@ -82,6 +110,10 @@ cargo run --release -- examples/hybrid-cloud.idraw
 | L | toggle library | ⌘E / ⇧⌘E | export PNG / GIF |
 | Space-drag | pan | ⇧1 | zoom to fit |
 | double-click | edit label / new text | ⌘ while dragging | disable snapping |
+
+## Contributing
+
+Issues and pull requests are welcome. Ideas, bugs and icon packs especially.
 
 ## License
 
