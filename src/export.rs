@@ -327,15 +327,29 @@ fn arrow(o: &mut String, c: &Ctx, e: &Element) {
             _ if dashed => {
                 let _ = write!(o, r#"{base} {} stroke-dasharray="8 6"/>"#, paint("stroke", color));
             }
-            Flow::Dots => {
-                let _ = write!(o, r#"{base} {}/>"#, paint("stroke", color.gamma_multiply(0.45)));
-            }
-            Flow::Comet | Flow::Signal => {
-                let _ = write!(o, r#"{base} {}/>"#, paint("stroke", color.gamma_multiply(0.3)));
-            }
-            Flow::None if c.doc.sketch => outline(o, c, piece, false, color, width, false, e.id),
-            Flow::None => {
-                let _ = write!(o, r#"{base} {}/>"#, paint("stroke", color));
+            _ => {
+                let col = match flow {
+                    Flow::Dots => color.gamma_multiply(0.45),
+                    Flow::Comet | Flow::Signal => color.gamma_multiply(0.3),
+                    _ => color,
+                };
+                // round caps turn zero-length dashes into dots
+                let g = 5.0 + width;
+                let _ = match s.pattern {
+                    Pattern::Dotted => write!(o, r#"{base} {} stroke-dasharray="0 {:.2}"/>"#, paint("stroke", col), width * 2.2 + 4.0),
+                    Pattern::DashDot => write!(o, r#"{base} {} stroke-dasharray="10 {g:.2} 0 {g:.2}"/>"#, paint("stroke", col)),
+                    Pattern::Double => {
+                        for d in [-1.0, 1.0] {
+                            let _ = write!(o, r#"<polyline points="{}" fill="none" stroke-width="{:.2}" stroke-linejoin="round" {}/>"#, pts(&offset_path(piece, d * width * 1.1)), width * 0.55, paint("stroke", col));
+                        }
+                        Ok(())
+                    }
+                    Pattern::Solid if flow == Flow::None && c.doc.sketch => {
+                        outline(o, c, piece, false, color, width, false, e.id);
+                        Ok(())
+                    }
+                    Pattern::Solid => write!(o, r#"{base} {}/>"#, paint("stroke", col)),
+                };
             }
         }
     }
@@ -595,6 +609,13 @@ mod tests {
         d.sketch = true;
         let (s, _) = svg(&d, &[], 0.0, Look { dark: true, failures: true }).unwrap();
         resvg::usvg::Tree::from_str(&s, &Default::default()).unwrap();
+        for pat in [Pattern::Dotted, Pattern::DashDot, Pattern::Double] {
+            for e in d.elements.iter_mut().filter(|e| e.kind == Kind::Arrow) {
+                e.style.pattern = pat;
+            }
+            let (s, _) = svg(&d, &[], 0.0, Look::default()).unwrap();
+            resvg::usvg::Tree::from_str(&s, &Default::default()).unwrap();
+        }
     }
 }
 

@@ -161,6 +161,53 @@ fn seg<T: PartialEq + Copy>(ui: &mut Ui, cur: T, opts: &[(T, &str)]) -> Option<T
     out
 }
 
+/// Connector line styles as little drawn samples.
+fn line_pick(ui: &mut Ui, cur: (bool, Pattern), width: f32) -> Option<(bool, Pattern)> {
+    let opts = [
+        ((false, Pattern::Solid), "Solid"),
+        ((true, Pattern::Solid), "Dashed"),
+        ((false, Pattern::Dotted), "Dotted"),
+        ((false, Pattern::DashDot), "Dash-dot"),
+        ((false, Pattern::Double), "Double"),
+    ];
+    let mut out = None;
+    Frame::new().fill(theme::hover()).corner_radius(8).inner_margin(Margin::same(2)).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            let w = (PANEL_W - 8.0 - 2.0 * (opts.len() as f32 - 1.0)) / opts.len() as f32;
+            for (v, tip) in opts {
+                let on = v == cur;
+                let (r, resp) = ui.allocate_exact_size(vec2(w, 26.0), Sense::click());
+                let resp = resp.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::PointingHand);
+                let p = ui.painter();
+                if on || resp.hovered() {
+                    p.rect_filled(r, 6.0, if on { theme::panel_bg() } else { theme::panel_bg().gamma_multiply(0.5) });
+                }
+                let col = if on { theme::active_fg() } else { theme::text() };
+                let wd = width.clamp(1.5, 3.0);
+                let line = [pos2(r.min.x + 8.0, r.center().y), pos2(r.max.x - 8.0, r.center().y)];
+                match v {
+                    (true, _) => p.extend(egui::Shape::dashed_line(&line, Stroke::new(wd, col), 5.0, 3.0)),
+                    (_, Pattern::Dotted) => p.extend(egui::Shape::dotted_line(&line, col, wd * 2.0 + 2.0, wd * 0.6)),
+                    (_, Pattern::DashDot) => p.extend(egui::Shape::dashed_line_with_offset(&line, Stroke::new(wd, col), &[7.0, wd], &[3.0, 3.0], 0.0)),
+                    (_, Pattern::Double) => {
+                        for d in [-2.2, 2.2] {
+                            p.line_segment([line[0] + vec2(0.0, d), line[1] + vec2(0.0, d)], Stroke::new(wd * 0.6, col));
+                        }
+                    }
+                    _ => {
+                        p.line_segment(line, Stroke::new(wd, col));
+                    }
+                }
+                if resp.clicked() && !on {
+                    out = Some(v);
+                }
+            }
+        });
+    });
+    out
+}
+
 /// 3×3 label-position picker drawn as a tiny shape with hot spots.
 fn pos_grid(ui: &mut Ui, salt: &str, cur: TextPos, outside: bool) -> Option<TextPos> {
     let (area, _) = ui.allocate_exact_size(vec2(PANEL_W, 92.0), Sense::hover());
@@ -625,7 +672,12 @@ impl App {
                     }
                     if !has(&[Kind::Text, Kind::Pen, Kind::Comment, Kind::Sticky]) {
                         section(ui, "Line style");
-                        if let Some(d) = seg(ui, s.dashed, &[(false, "Solid"), (true, "Dashed")]) {
+                        if els.iter().all(|e| e.kind == Kind::Arrow) {
+                            let cur = (s.dashed, if s.dashed { Pattern::Solid } else { s.pattern });
+                            if let Some((d, pat)) = line_pick(ui, cur, s.width) {
+                                change = Some(Box::new(move |e| (e.style.dashed, e.style.pattern) = (d, pat)));
+                            }
+                        } else if let Some(d) = seg(ui, s.dashed, &[(false, "Solid"), (true, "Dashed")]) {
                             change = Some(Box::new(move |e| e.style.dashed = d));
                         }
                     }

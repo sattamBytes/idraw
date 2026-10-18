@@ -343,15 +343,26 @@ fn draw_arrow(p: &Painter, ctx: &Context, doc: &Doc, e: &Element, v: &View, o: &
                 }
             }
             _ if dashed => p.extend(Shape::dashed_line(&sl, stroke, 8.0 * z, 6.0 * z)),
-            Flow::Dots => {
-                p.add(Shape::line(sl, Stroke::new(width * z, color.gamma_multiply(0.45))));
-            }
-            Flow::Comet | Flow::Signal => {
-                p.add(Shape::line(sl, Stroke::new(width * z, color.gamma_multiply(0.3))));
-            }
-            Flow::None if o.sketch => outline(p, v, piece, false, stroke, false, true, e.id),
-            Flow::None => {
-                p.add(Shape::line(sl, stroke));
+            _ => {
+                // animated flows draw a faint track under their packets
+                let col = match flow {
+                    Flow::Dots => color.gamma_multiply(0.45),
+                    Flow::Comet | Flow::Signal => color.gamma_multiply(0.3),
+                    _ => color,
+                };
+                match s.pattern {
+                    Pattern::Dotted => p.extend(Shape::dotted_line(&sl, col, (width * 2.2 + 4.0) * z, width * 0.6 * z)),
+                    Pattern::DashDot => p.extend(Shape::dashed_line_with_offset(&sl, Stroke::new(width * z, col), &[10.0 * z, width * z], &[5.0 * z, 5.0 * z], 0.0)),
+                    Pattern::Double => {
+                        for d in [-1.0, 1.0] {
+                            p.add(Shape::line(v.pts(&offset_path(piece, d * width * 1.1)), Stroke::new(width * 0.55 * z, col)));
+                        }
+                    }
+                    Pattern::Solid if flow == Flow::None && o.sketch => outline(p, v, piece, false, stroke, false, true, e.id),
+                    Pattern::Solid => {
+                        p.add(Shape::line(sl, Stroke::new(width * z, col)));
+                    }
+                }
             }
         }
     }

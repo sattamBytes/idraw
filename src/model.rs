@@ -118,6 +118,18 @@ pub struct Style {
     pub head_start: bool,
     pub head_end: bool,
     pub flow: Flow,
+    /// connector line pattern besides plain / dashed
+    #[serde(default)]
+    pub pattern: Pattern,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum Pattern {
+    #[default]
+    Solid,
+    Dotted,
+    DashDot,
+    Double,
 }
 
 impl Default for Style {
@@ -133,6 +145,7 @@ impl Default for Style {
             head_start: false,
             head_end: true,
             flow: Flow::None,
+            pattern: Pattern::Solid,
         }
     }
 }
@@ -1323,6 +1336,29 @@ pub fn flow_glow(flow: Flow, path: &[Pos2], phase: f32) -> (Vec<(Vec<Pos2>, f32,
     (strokes, heads)
 }
 
+/// The polyline shifted sideways by `d` (corners mitred), e.g. for double lines.
+pub fn offset_path(p: &[Pos2], d: f32) -> Vec<Pos2> {
+    let normal = |a: Pos2, b: Pos2| {
+        let v = (b - a).normalized();
+        vec2(-v.y, v.x)
+    };
+    (0..p.len())
+        .map(|i| {
+            let n0 = (i > 0 && p[i - 1] != p[i]).then(|| normal(p[i - 1], p[i]));
+            let n1 = (i + 1 < p.len() && p[i] != p[i + 1]).then(|| normal(p[i], p[i + 1]));
+            let m = match (n0, n1) {
+                (Some(a), Some(b)) => {
+                    let s = (a + b).normalized();
+                    s / s.dot(a).max(0.3)
+                }
+                (Some(a), None) | (None, Some(a)) => a,
+                _ => Vec2::ZERO,
+            };
+            p[i] + m * d
+        })
+        .collect()
+}
+
 /// Marching-ants offset for dashed flow.
 pub fn dash_offset(phase: f32) -> f32 {
     phase.fract() * DASH * 2.0 * 3.0
@@ -1822,6 +1858,14 @@ mod tests {
         let ar = d.add(arr);
         let p = d.arrow_corners(d.get(ar).unwrap());
         assert!(p.iter().all(|q| (q.y - 25.0).abs() < 0.01), "no jog: {p:?}");
+    }
+
+    #[test]
+    fn offset_path_keeps_distance_at_corners() {
+        let p = offset_path(&[pos2(0., 0.), pos2(100., 0.), pos2(100., 100.)], 4.0);
+        assert_eq!(p[0], pos2(0., 4.));
+        assert!((p[1].x - 96.0).abs() < 0.01 && (p[1].y - 4.0).abs() < 0.01, "{p:?}");
+        assert_eq!(p[2], pos2(96., 100.));
     }
 
     #[test]
