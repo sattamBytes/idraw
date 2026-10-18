@@ -3,7 +3,8 @@
 //! ```text
 //! Users -> API Gateway -> Orders service
 //! Orders service -> Postgres : SQL          label after a colon
-//! Orders service => Kafka                   => animated   --> dashed   <-> both ways
+//! Orders service => Kafka                   => packets  ~> dashes  *> comet  >> signal
+//! Users --> Backup                          --> dashed  <-> both ways
 //! Cache                                     a component on its own
 //! Payments [aws-lambda] (card processing)   optional [icon] and (subtitle)
 //! ```
@@ -14,7 +15,7 @@ use crate::model::*;
 use eframe::egui::{Pos2, Rect, Vec2, pos2, vec2};
 use std::collections::HashMap;
 
-const OPS: [&str; 5] = ["<->", "-->", "=>", "~>", "->"];
+const OPS: [&str; 7] = ["<->", "-->", "=>", "~>", "*>", ">>", "->"];
 
 pub fn slug(s: &str) -> String {
     let mut out = String::new();
@@ -57,6 +58,8 @@ fn op_of(e: &Element) -> &'static str {
     match (e.style.flow, e.style.dashed, e.style.head_start && e.style.head_end) {
         (Flow::Dots, _, _) => "=>",
         (Flow::Dashes, _, _) => "~>",
+        (Flow::Comet, _, _) => "*>",
+        (Flow::Signal, _, _) => ">>",
         (_, _, true) => "<->",
         (_, true, _) => "-->",
         _ => "->",
@@ -329,6 +332,8 @@ pub fn apply(doc: &mut Doc, src: &str) -> Result<(), String> {
         s.flow = match ed.op {
             "=>" => Flow::Dots,
             "~>" => Flow::Dashes,
+            "*>" => Flow::Comet,
+            ">>" => Flow::Signal,
             _ => Flow::None,
         };
         s.dashed = ed.op == "-->";

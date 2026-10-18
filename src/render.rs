@@ -330,25 +330,26 @@ fn draw_arrow(p: &Painter, ctx: &Context, doc: &Doc, e: &Element, v: &View, o: &
     let (line, heads) = arrow_geometry(&path, s, width);
     let phase = o.phase * speed;
     // hops over / gaps under crossing connectors
-    for piece in doc.line_pieces(e, line) {
-        if piece.len() < 2 {
-            continue;
-        }
-        let sl = v.pts(&piece);
+    let pieces: Vec<Vec<Pos2>> = doc.line_pieces(e, line).into_iter().filter(|p| p.len() >= 2).collect();
+    for piece in &pieces {
+        let sl = v.pts(piece);
         match flow {
             Flow::Dashes => {
                 // egui's offset = where the first dash starts, so growing it marches dashes forward.
                 let off = dash_offset(phase) % (DASH * 2.0);
                 p.extend(Shape::dashed_line_with_offset(&sl, stroke, &[DASH * z], &[DASH * z], off * z));
                 if off > DASH {
-                    p.add(Shape::line_segment([sl[0], v.w2s(point_at(&piece, off - DASH))], stroke));
+                    p.add(Shape::line_segment([sl[0], v.w2s(point_at(piece, off - DASH))], stroke));
                 }
             }
             _ if dashed => p.extend(Shape::dashed_line(&sl, stroke, 8.0 * z, 6.0 * z)),
             Flow::Dots => {
                 p.add(Shape::line(sl, Stroke::new(width * z, color.gamma_multiply(0.45))));
             }
-            Flow::None if o.sketch => outline(p, v, &piece, false, stroke, false, true, e.id),
+            Flow::Comet | Flow::Signal => {
+                p.add(Shape::line(sl, Stroke::new(width * z, color.gamma_multiply(0.3))));
+            }
+            Flow::None if o.sketch => outline(p, v, piece, false, stroke, false, true, e.id),
             Flow::None => {
                 p.add(Shape::line(sl, stroke));
             }
@@ -359,6 +360,19 @@ fn draw_arrow(p: &Painter, ctx: &Context, doc: &Doc, e: &Element, v: &View, o: &
             p.add(Shape::line(v.pts(&[h[1], h[0], h[2]]), stroke));
         } else {
             p.add(Shape::convex_polygon(v.pts(&h), color, Stroke::NONE));
+        }
+    }
+    if matches!(flow, Flow::Comet | Flow::Signal) && !dashed {
+        let (strokes, glows) = flow_glow(flow, &pieces.concat(), phase);
+        for (pts, a, wm) in strokes {
+            p.add(Shape::line(v.pts(&pts), Stroke::new(width * wm * z, color.gamma_multiply(a))));
+        }
+        let rad = (2.0 + width * 0.6) * z;
+        for (c, a) in glows {
+            let c = v.w2s(c);
+            p.circle_filled(c, rad * 2.6, color.gamma_multiply(0.16 * a));
+            p.circle_filled(c, rad * 1.4, color.gamma_multiply(a));
+            p.circle_filled(c, rad * 0.6, Color32::WHITE.gamma_multiply(0.9 * a));
         }
     }
     if flow == Flow::Dots {

@@ -62,6 +62,10 @@ pub enum Flow {
     None,
     Dots,
     Dashes,
+    /// glowing streaks with fading tails
+    Comet,
+    /// the line lights up from source to target, then fades
+    Signal,
 }
 
 /// Where a label sits relative to its shape (3x3 grid).
@@ -1232,6 +1236,73 @@ pub fn flow_dots(path: &[Pos2], phase: f32) -> Vec<Pos2> {
     out
 }
 
+pub const COMET_SPACING: f32 = 240.0;
+pub const COMET_TAIL: f32 = 130.0;
+
+/// The stretch of a path between distances `a` and `b`.
+pub fn sub_path(path: &[Pos2], a: f32, b: f32) -> Vec<Pos2> {
+    let mut out = vec![point_at(path, a)];
+    let mut acc = 0.0;
+    for w in path.windows(2) {
+        acc += w[0].distance(w[1]);
+        if acc > a && acc < b {
+            out.push(w[1]);
+        }
+    }
+    out.push(point_at(path, b));
+    out
+}
+
+/// Signal sweep at a phase: (how far the bright front has got 0..1, brightness 0..1).
+pub fn signal(phase: f32) -> (f32, f32) {
+    let f = phase.fract();
+    if f < 0.6 {
+        (1.0 - (1.0 - f / 0.6).powi(3), 1.0)
+    } else {
+        (1.0, 1.0 - (f - 0.6) / 0.4)
+    }
+}
+
+/// Bright overlay of Comet / Signal flows: strokes (polyline, opacity, width multiplier)
+/// and glowing heads (position, opacity). Seamless over one phase unit, like the dots.
+pub fn flow_glow(flow: Flow, path: &[Pos2], phase: f32) -> (Vec<(Vec<Pos2>, f32, f32)>, Vec<(Pos2, f32)>) {
+    let l = path_len(path);
+    let (mut strokes, mut heads) = (vec![], vec![]);
+    match flow {
+        Flow::Comet => {
+            const K: usize = 12;
+            let mut d = phase.fract() * COMET_SPACING;
+            // heads run past the end so tails leave smoothly
+            while d < l + COMET_TAIL {
+                for j in 0..K {
+                    let (t0, t1) = (j as f32 / K as f32, (j + 1) as f32 / K as f32);
+                    let (a, b) = ((d - COMET_TAIL * (1.0 - t0)).clamp(0.0, l), (d - COMET_TAIL * (1.0 - t1)).clamp(0.0, l));
+                    if b - a > 0.1 {
+                        let seg = sub_path(path, a, b);
+                        strokes.push((seg.clone(), 0.18 * t1, 1.0 + 3.0 * t1));
+                        strokes.push((seg, t1.powf(1.2), 0.8 + 1.4 * t1));
+                    }
+                }
+                if d <= l {
+                    heads.push((point_at(path, d), 1.0));
+                }
+                d += COMET_SPACING;
+            }
+        }
+        Flow::Signal => {
+            let (front, bright) = signal(phase);
+            if front > 0.0 && bright > 0.0 {
+                let lit = sub_path(path, 0.0, front * l);
+                strokes.push((lit.clone(), bright * 0.22, 3.2));
+                strokes.push((lit, bright, 1.15));
+                heads.push((point_at(path, front * l), bright));
+            }
+        }
+        _ => {}
+    }
+    (strokes, heads)
+}
+
 /// Marching-ants offset for dashed flow.
 pub fn dash_offset(phase: f32) -> f32 {
     phase.fract() * DASH * 2.0 * 3.0
@@ -1726,6 +1797,19 @@ mod tests {
         let (t, off) = project(&path, target);
         assert!((label_anchor(&path, t, off) - target).length() < 0.5, "{t} {off}");
         assert_eq!(label_anchor(&path, 0.5, 0.0), pos2(100., 0.));
+    }
+
+    #[test]
+    fn glow_flows_loop_seamlessly() {
+        let path = [pos2(0.0, 0.0), pos2(300.0, 0.0), pos2(300.0, 200.0)];
+        assert_eq!(path_len(&sub_path(&path, 100.0, 400.0)).round(), 300.0);
+        for f in [Flow::Comet, Flow::Signal] {
+            let (a, b) = (flow_glow(f, &path, 0.0), flow_glow(f, &path, 1.0));
+            assert_eq!((a.0.len(), a.1.len()), (b.0.len(), b.1.len()));
+        }
+        assert_eq!(signal(0.0), (0.0, 1.0));
+        assert!(signal(0.99).1 < 0.05);
+        assert!(!flow_glow(Flow::Comet, &path, 0.5).1.is_empty());
     }
 
     #[test]

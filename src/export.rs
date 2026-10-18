@@ -317,11 +317,9 @@ fn arrow(o: &mut String, c: &Ctx, e: &Element) {
     let phase = c.phase * speed;
     let path = c.doc.arrow_path(e);
     let (line, heads) = arrow_geometry(&path, s, width);
-    for piece in c.doc.line_pieces(e, line) {
-        if piece.len() < 2 {
-            continue;
-        }
-        let base = format!(r#"<polyline points="{}" fill="none" stroke-width="{width:.2}" stroke-linejoin="round" stroke-linecap="round""#, pts(&piece));
+    let pieces: Vec<Vec<Pos2>> = c.doc.line_pieces(e, line).into_iter().filter(|p| p.len() >= 2).collect();
+    for piece in &pieces {
+        let base = format!(r#"<polyline points="{}" fill="none" stroke-width="{width:.2}" stroke-linejoin="round" stroke-linecap="round""#, pts(piece));
         match flow {
             Flow::Dashes => {
                 let _ = write!(o, r#"{base} {} stroke-dasharray="{DASH} {DASH}" stroke-dashoffset="{:.2}"/>"#, paint("stroke", color), -dash_offset(phase));
@@ -332,7 +330,10 @@ fn arrow(o: &mut String, c: &Ctx, e: &Element) {
             Flow::Dots => {
                 let _ = write!(o, r#"{base} {}/>"#, paint("stroke", color.gamma_multiply(0.45)));
             }
-            Flow::None if c.doc.sketch => outline(o, c, &piece, false, color, width, false, e.id),
+            Flow::Comet | Flow::Signal => {
+                let _ = write!(o, r#"{base} {}/>"#, paint("stroke", color.gamma_multiply(0.3)));
+            }
+            Flow::None if c.doc.sketch => outline(o, c, piece, false, color, width, false, e.id),
             Flow::None => {
                 let _ = write!(o, r#"{base} {}/>"#, paint("stroke", color));
             }
@@ -343,6 +344,19 @@ fn arrow(o: &mut String, c: &Ctx, e: &Element) {
             poly_path(o, &[h[1], h[0], h[2]], false, &format!(r#"fill="none" {} stroke-width="{width}" stroke-linecap="round""#, paint("stroke", color)));
         } else {
             poly_path(o, &h, true, &paint("fill", color));
+        }
+    }
+    if matches!(flow, Flow::Comet | Flow::Signal) && !dashed {
+        let (strokes, glows) = flow_glow(flow, &pieces.concat(), phase);
+        for (p, a, wm) in strokes {
+            // butt caps so overlapping translucent slices don't bead
+            let _ = write!(o, r#"<polyline points="{}" fill="none" stroke-width="{:.2}" stroke-linejoin="round" stroke-linecap="butt" {}/>"#, pts(&p), width * wm, paint("stroke", color.gamma_multiply(a)));
+        }
+        let rad = 2.0 + width * 0.6;
+        for (d, a) in glows {
+            for (r, col) in [(2.6, color.gamma_multiply(0.16 * a)), (1.4, color.gamma_multiply(a)), (0.6, Color32::WHITE.gamma_multiply(0.9 * a))] {
+                let _ = write!(o, r#"<circle cx="{:.1}" cy="{:.1}" r="{:.1}" {}/>"#, d.x, d.y, rad * r, paint("fill", col));
+            }
         }
     }
     if flow == Flow::Dots {

@@ -625,7 +625,7 @@ impl App {
                             change = Some(Box::new(move |e| (e.style.head_start, e.style.head_end) = (a, b)));
                         }
                         section(ui, "Flow animation");
-                        if let Some(f) = seg(ui, s.flow, &[(Flow::None, "Off"), (Flow::Dots, "Packets"), (Flow::Dashes, "Dashes")]) {
+                        if let Some(f) = seg(ui, s.flow, &[(Flow::None, "Off"), (Flow::Dots, "Dots"), (Flow::Dashes, "Dash"), (Flow::Comet, "Comet"), (Flow::Signal, "Signal")]) {
                             change = Some(Box::new(move |e| e.style.flow = f));
                         }
                         if s.flow != Flow::None || first.failover {
@@ -1516,7 +1516,7 @@ impl App {
                 Frame::new().fill(theme::hover()).corner_radius(8).inner_margin(Margin::same(10)).show(ui, |ui| {
                     ui.label(RichText::new("Users -> API Gateway -> Orders\nOrders -> Postgres : SQL\nOrders => Kafka").monospace().size(12.0));
                     ui.add_space(2.0);
-                    ui.label(RichText::new("->  arrow     =>  animated     -->  dashed\n:   adds a label    Postgres, S3, Lambda… get their icon").small().color(theme::muted()));
+                    ui.label(RichText::new("->  arrow   -->  dashed   =>  dots   ~>  dash   *>  comet   >>  signal\n:   adds a label    Postgres, S3, Lambda… get their icon").small().color(theme::muted()));
                 });
                 ui.add_space(6.0);
                 let h = ui.available_height() - 60.0;
