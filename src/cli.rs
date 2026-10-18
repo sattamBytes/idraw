@@ -40,7 +40,7 @@ pub fn run() -> Option<i32> {
     Some(match cmd {
         "render" => report(render(rest)),
         "check" => report(check(rest)),
-        "skill" => report(skill(rest)),
+        "skill" | "skills" => report(skill(rest)),
         "icons" => {
             icons_list(rest);
             0
@@ -49,7 +49,13 @@ pub fn run() -> Option<i32> {
             print!("{HELP}");
             0
         }
-        _ => return None,
+        // a file to open in the app (or something the app can import)
+        _ if std::path::Path::new(cmd).exists() || cmd.starts_with('-') => return None,
+        // a typo shouldn't silently launch the app
+        _ => {
+            eprintln!("idraw: unknown command or missing file \"{cmd}\". Commands: render, check, icons, skill. Run idraw --help");
+            2
+        }
     })
 }
 

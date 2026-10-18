@@ -188,7 +188,16 @@ Every field is in [`skills/idraw/reference.md`](skills/idraw/reference.md).
    /Applications/idraw.app/Contents/MacOS/idraw skill install
    ```
    (Installed elsewhere? Use `~/Applications/idraw.app/...` or the folder you passed to `--appdir`.)
-3. See which `idraw` runs and where it points:
+3. Make sure Homebrew's `bin` folder is on your PATH. This bites when Homebrew lives in a custom folder:
+   ```bash
+   ls "$(brew --prefix)/bin/idraw"          # the link Homebrew created
+   echo "$PATH" | tr ':' '\n' | grep -i brew  # is that folder on your PATH?
+   ```
+   If the link exists but its folder isn't on your PATH, add this line to `~/.zshrc` and open a new terminal:
+   ```bash
+   eval "$("$(brew --prefix)/bin/brew" shellenv)"
+   ```
+4. See which `idraw` runs and where it points:
    ```bash
    which -a idraw
    ls -l "$(which idraw)"
@@ -198,7 +207,7 @@ Every field is in [`skills/idraw/reference.md`](skills/idraw/reference.md).
    mkdir -p ~/.local/bin && ln -sf /Applications/idraw.app/Contents/MacOS/idraw ~/.local/bin/idraw
    ```
    and make sure `~/.local/bin` is on your PATH (`echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc`, then open a new terminal).
-4. `idraw --help` should list `render`, `check`, `icons` and `skill`. If it opens the app window instead, you're running a version older than 0.3.0.
+5. `idraw --help` should list `render`, `check`, `icons` and `skill`. If it opens the app window instead, you're running a version older than 0.3.0. From 0.4.2, a mistyped command prints an error instead of opening the app.
 
 </details>
 
