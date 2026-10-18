@@ -235,7 +235,7 @@ impl App {
 
     pub(super) fn top_left(&mut self, ctx: &Context) {
         let mut save_now = false;
-        egui::Area::new(Id::new("menu")).anchor(Align2::LEFT_TOP, vec2(84.0, 10.0)).show(ctx, |ui| {
+        egui::Area::new(Id::new("menu")).anchor(Align2::LEFT_TOP, vec2(12.0, 10.0)).show(ctx, |ui| {
             panel().show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if icon_button(ui, &mut self.icons, "menu", self.menu, "Menu").clicked() {
@@ -269,7 +269,7 @@ impl App {
             return;
         }
         let mut act = None;
-        egui::Area::new(Id::new("menu-pop")).anchor(Align2::LEFT_TOP, vec2(84.0, 62.0)).order(Order::Foreground).show(ctx, |ui| {
+        egui::Area::new(Id::new("menu-pop")).anchor(Align2::LEFT_TOP, vec2(12.0, 62.0)).order(Order::Foreground).show(ctx, |ui| {
             panel().show(ui, |ui| {
                 ui.set_width(250.0);
                 let groups: &[&[(&str, &str, &str)]] = &[

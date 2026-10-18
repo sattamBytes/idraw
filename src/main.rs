@@ -47,9 +47,8 @@ fn main() -> eframe::Result {
             .with_title("idraw")
             .with_inner_size([1440.0, 900.0])
             .with_min_inner_size([820.0, 520.0])
-            .with_fullsize_content_view(true)
-            .with_titlebar_shown(false)
-            .with_title_shown(false),
+            // standard title bar: drags that start on the canvas or toolbar never move the window
+            .with_fullsize_content_view(false),
         ..Default::default()
     };
     eframe::run_native("idraw", opts, Box::new(|cc| Ok(Box::new(app::App::new(cc)))))
