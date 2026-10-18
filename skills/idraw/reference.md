@@ -33,7 +33,7 @@ An icon tile + title + subtitle card. Set `icon`. Ids are prefixed by provider: 
 Beyond infrastructure there are icons for logic, AI and ideas, handy for flowcharts, agent designs and product diagrams:
 - **Logic**: `decision`, `decision-tree`, `router`, `if-else`, `switch`, `merge`, `split`, `filter`, `loop`, `rules`, `gate`, `toggle` (feature flag), `ab-test`, `timeout`, `gauge` (threshold), `state` (state machine), `dice` (random)
 - **AI**: `sparkles` (model), `brain` (reasoning), `agent`, `prompt`, `tokens`, `temperature`, `sliders` (parameters), `embedding`, `vector`, `rag`, `neural`, `guardrail`, `eval`, `memory`, `tool`, `chain`, `classifier`, `chat`, `vision`, `voice`, `image-gen`, `fine-tune`
-- **Ideas**: `idea`, `palette` (design), `wand` (automation), `target` (goal), `rocket` (launch), `puzzle` (integration), `team`, `milestone`, `book` (docs) Long titles and subtitles wrap, and the card grows taller to fit; give `w` (e.g. 220) to keep it on fewer lines.
+- **Ideas**: `idea`, `palette` (design), `magic` (automation), `target` (goal), `rocket` (launch), `puzzle` (integration), `team`, `milestone`, `book` (docs) Long titles and subtitles wrap, and the card grows taller to fit; give `w` (e.g. 220) to keep it on fewer lines.
 
 Extra fields:
 

@@ -179,7 +179,7 @@ const GLYPHS: &[(&str, &str, &str, &str)] = &[
     // Ideas & creative
     ("idea", "Idea", "Ideas", r#"<path d="M9 18h6M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.3h6c0-1 .4-1.8 1-2.3A7 7 0 0 0 12 2z"/>"#),
     ("palette", "Design", "Ideas", r#"<path d="M12 2a10 10 0 1 0 0 20c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.4-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.3A4.7 4.7 0 0 0 22 10.6C22 5.8 17.5 2 12 2z"/><path d="M7.5 11h.01M10 7h.01M15 7h.01M17.5 11h.01"/>"#),
-    ("wand", "Magic / automation", "Ideas", r#"<path d="M4 20L15 9M13 7l4 4"/><path d="M19 2v3M17.5 3.5h3M6 3v2M5 4h2M20 14v2M19 15h2"/>"#),
+    ("magic", "Magic / automation", "Ideas", r#"<path d="M4 20L15 9M13 7l4 4"/><path d="M19 2v3M17.5 3.5h3M6 3v2M5 4h2M20 14v2M19 15h2"/>"#),
     ("target", "Goal", "Ideas", r#"<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>"#),
     ("rocket", "Launch", "Ideas", r#"<path d="M5 15c-1.5 1.3-2 5-2 5s3.7-.5 5-2"/><path d="M9 15l-3-3c1-4 4-8 9-9 2-.4 4-.4 6 0 .4 2 .4 4 0 6-1 5-5 8-9 9z"/><circle cx="15" cy="9" r="2"/>"#),
     ("puzzle", "Integration", "Ideas", r#"<path d="M3 6h4.5a2.5 2.5 0 0 1 5 0H17v4.5a2.5 2.5 0 0 1 0 5V20h-4.5a2.5 2.5 0 0 0-5 0H3v-4.5a2.5 2.5 0 0 0 0-5z"/>"#),
