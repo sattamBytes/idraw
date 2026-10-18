@@ -41,18 +41,26 @@ fn props_empty(ui: &mut Ui, locked: bool) {
     }
 }
 
-/// A click, or on a touch screen a tap on a control that can also be dragged: there a finger
-/// press starts a "drag" straight away, so egui never reports a click. A drag that ends on the
-/// same control counts as a tap.
+/// A click, or a tap on a touch screen. On touch, eframe sends a finger's release and "pointer
+/// gone" in the same frame, so controls that can also be dragged never report a click. Instead:
+/// remember that the finger went down on this control, and count a release inside it as a tap.
 fn tapped(ui: &Ui, r: &Response) -> bool {
-    r.clicked()
-        || (r.drag_stopped()
-            && ui
-                .input(|i| i.events.iter().rev().find_map(|e| match e {
-                    egui::Event::PointerButton { pos, pressed: false, .. } => Some(*pos),
-                    _ => None,
-                }))
-                .is_some_and(|p| r.rect.contains(p)))
+    if r.clicked() {
+        return true;
+    }
+    let down_here = r.id.with("finger-down");
+    if r.is_pointer_button_down_on() {
+        ui.ctx().data_mut(|d| d.insert_temp(down_here, true));
+    }
+    let released = ui.input(|i| {
+        i.events.iter().rev().find_map(|e| match e {
+            egui::Event::PointerButton { pos, pressed: false, .. } => Some(*pos),
+            _ => None,
+        })
+    });
+    let Some(pos) = released else { return false };
+    let was_down = ui.ctx().data_mut(|d| d.remove_temp::<bool>(down_here)).unwrap_or(false);
+    was_down && r.rect.contains(pos)
 }
 
 pub(super) fn icon_button(ui: &mut Ui, icons: &mut Icons, icon: &str, active: bool, tip: &str) -> Response {
