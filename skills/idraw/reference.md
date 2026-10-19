@@ -13,7 +13,7 @@ Elements are drawn in list order (later = on top), except boundaries (`region`) 
 | `x`, `y`, `w`, `h` | top-left and size. Or `"rect": {"x","y","w","h"}` / `[x, y, w, h]`. Defaults: node, rect, ellipse and diamond 176×56 (so they line up), region 480×320, sticky 180×140 |
 | `text` | label; `\n` for a new line |
 | `title`, `subtitle` | for nodes: card title and grey second line (same as `text: "Title\nSub"`) |
-| `stroke` (or `color`) | outline / accent colour `#rrggbb` |
+| `stroke` (or `color`) | outline / accent colour `#rrggbb` (rectangles, ellipses and diamonds default to Slate `#64748b`) |
 | `fill` | background `#rrggbb`, `#rrggbbaa` or `"none"` |
 | `text_color` | label colour (default: same as stroke; dark ink for nodes and stickies) |
 | `width` | line thickness, 1–4 (default 2) |

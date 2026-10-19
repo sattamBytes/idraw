@@ -42,7 +42,7 @@ pub(crate) const TOOLS: [(Tool, &str, &str, Key); 11] = [
 /// Stroke / text colors: each is dark enough (>= ~4.5:1) to read as label text on white and on the fills.
 pub(crate) const STROKES: [(Color32, &str); 12] = [
     (INK, "Ink"),
-    (Color32::from_rgb(0x64, 0x74, 0x8b), "Slate"),
+    (SLATE, "Slate"),
     (Color32::from_rgb(0xdc, 0x26, 0x26), "Red"),
     (Color32::from_rgb(0xc2, 0x41, 0x0c), "Orange"),
     (Color32::from_rgb(0xb4, 0x53, 0x09), "Amber"),
