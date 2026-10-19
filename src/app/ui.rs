@@ -1859,12 +1859,13 @@ impl App {
         let v = self.view();
         let (top, bottom) = (v.w2s(b.min), v.w2s(b.max));
         let x = ((top.x + bottom.x) / 2.0).clamp(self.canvas.left() + 130.0, self.canvas.right() - 130.0);
-        // above the selection, or below it when there's no room under the toolbar
-        let above = top.y - 14.0 > self.canvas.top() + 120.0;
-        let (pivot, y) = if above { (Align2::CENTER_BOTTOM, top.y - 14.0) } else { (Align2::CENTER_TOP, bottom.y + 14.0) };
+        // above the selection (clear of its connection dots), or below when there's no room under the toolbar
+        const GAP: f32 = 40.0;
+        let above = top.y - GAP > self.canvas.top() + 120.0;
+        let (pivot, y) = if above { (Align2::CENTER_BOTTOM, top.y - GAP) } else { (Align2::CENTER_TOP, bottom.y + GAP) };
         let one = (self.sel.len() == 1).then(|| self.doc.get(self.sel[0])).flatten().map(|e| (e.id, e.kind, e.bindable(), e.rect));
         let mut act: Option<&'static str> = None;
-        egui::Area::new(Id::new("selection-bar")).pivot(pivot).fixed_pos(pos2(x, y)).order(Order::Foreground).show(ctx, |ui| {
+        let bar = egui::Area::new(Id::new("selection-bar")).pivot(pivot).fixed_pos(pos2(x, y)).order(Order::Foreground).show(ctx, |ui| {
             panel().show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
@@ -1884,14 +1885,19 @@ impl App {
                     btn(ui, "trash", "Delete", "del");
                     btn(ui, "menu", "More", "more");
                 });
-                if self.bar_more {
-                    ui.separator();
+            });
+        });
+        if self.bar_more {
+            // drops down from the bar like a menu, so the bar itself stays put
+            let below = bar.response.rect.center_bottom() + vec2(0.0, 6.0);
+            egui::Area::new(Id::new("selection-bar-more")).pivot(Align2::CENTER_TOP).fixed_pos(below).order(Order::Foreground).show(ctx, |ui| {
+                panel().show(ui, |ui| {
                     if let Some(a) = self.canvas_menu(ui) {
                         act = Some(a);
                     }
-                }
+                });
             });
-        });
+        }
         match act {
             Some("more") => self.bar_more = !self.bar_more,
             Some("edit") => {
