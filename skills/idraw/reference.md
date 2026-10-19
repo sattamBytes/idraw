@@ -56,6 +56,7 @@ Big labelled zones: cloud, VPC, subnet, cluster, team, layer. Title goes top-lef
 
 | field | meaning |
 |---|---|
+| `stroke` | line colour; connectors are Sky (`#0369a1`) unless you set one |
 | `from`, `to` | an element id, `{"id": "api", "side": "right"}` to pin the side (`top`/`right`/`bottom`/`left`), or `[x, y]` for a loose end |
 | `text` | label on the line. A rate like `"1.2k rps"` makes the line thicker and faster |
 | `route` | `elbow` (default, avoids shapes), `straight`, `curve` |

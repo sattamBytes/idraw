@@ -210,6 +210,8 @@ impl Default for Style {
 
 pub const INK: Color32 = Color32::from_rgb(0x1f, 0x29, 0x37);
 pub const INDIGO: Color32 = Color32::from_rgb(0x63, 0x66, 0xf1);
+/// Default connector colour (the palette's Sky).
+pub const SKY: Color32 = Color32::from_rgb(0x03, 0x69, 0xa1);
 pub const MUTED: Color32 = Color32::from_rgb(0x6b, 0x72, 0x80);
 pub const CARD_BORDER: Color32 = Color32::from_rgb(0xe5, 0xe7, 0xeb);
 pub const DOWN_RED: Color32 = Color32::from_rgb(0xdc, 0x26, 0x26);
@@ -376,7 +378,7 @@ impl Element {
         let mut style = Style::default();
         let mut tpos = TextPos::Center;
         match kind {
-            Kind::Arrow => style.stroke = INDIGO,
+            Kind::Arrow => style.stroke = SKY,
             Kind::Text => style.font = 20.0,
             Kind::Node => style.fill = Color32::WHITE,
             Kind::Region => {

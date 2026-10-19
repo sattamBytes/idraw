@@ -48,7 +48,7 @@ pub(crate) const STROKES: [(Color32, &str); 12] = [
     (Color32::from_rgb(0xb4, 0x53, 0x09), "Amber"),
     (Color32::from_rgb(0x15, 0x80, 0x3d), "Green"),
     (Color32::from_rgb(0x0f, 0x76, 0x6e), "Teal"),
-    (Color32::from_rgb(0x03, 0x69, 0xa1), "Sky"),
+    (SKY, "Sky"),
     (Color32::from_rgb(0x25, 0x63, 0xeb), "Blue"),
     (INDIGO, "Indigo"),
     (Color32::from_rgb(0x7c, 0x3a, 0xed), "Violet"),
