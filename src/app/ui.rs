@@ -1848,11 +1848,11 @@ impl App {
         }
     }
 
-    /// Touch screens: a bar floating above the selection with the everyday actions, since there's
-    /// no ⌫ key or right-click to reach for.
+    /// A bar floating above the selection with the everyday actions: handy with a mouse, and the
+    /// only way to reach them on a touch screen (no ⌫ key or right-click there).
     pub(super) fn selection_bar(&mut self, ctx: &Context) {
         let idle = matches!(self.drag, Drag::None) && self.editing.is_none() && self.pending_arrow.is_none() && self.rec.is_none() && self.scn_play.is_none();
-        let Some(b) = self.doc.bounds_of(&self.sel).filter(|_| self.touch && idle) else {
+        let Some(b) = self.doc.bounds_of(&self.sel).filter(|_| idle) else {
             self.bar_more = false;
             return;
         };
@@ -1860,9 +1860,10 @@ impl App {
         let (top, bottom) = (v.w2s(b.min), v.w2s(b.max));
         let x = ((top.x + bottom.x) / 2.0).clamp(self.canvas.left() + 130.0, self.canvas.right() - 130.0);
         // above the selection (clear of its connection dots), or below when there's no room under the toolbar
-        const GAP: f32 = 40.0;
-        let above = top.y - GAP > self.canvas.top() + 120.0;
-        let (pivot, y) = if above { (Align2::CENTER_BOTTOM, top.y - GAP) } else { (Align2::CENTER_TOP, bottom.y + GAP) };
+        // on touch screens the dots sit further out from the shape
+        let gap = if self.touch { 40.0 } else { 30.0 };
+        let above = top.y - gap > self.canvas.top() + 120.0;
+        let (pivot, y) = if above { (Align2::CENTER_BOTTOM, top.y - gap) } else { (Align2::CENTER_TOP, bottom.y + gap) };
         let one = (self.sel.len() == 1).then(|| self.doc.get(self.sel[0])).flatten().map(|e| (e.id, e.kind, e.bindable(), e.rect));
         let mut act: Option<&'static str> = None;
         let bar = egui::Area::new(Id::new("selection-bar")).pivot(pivot).fixed_pos(pos2(x, y)).order(Order::Foreground).show(ctx, |ui| {
@@ -1876,14 +1877,14 @@ impl App {
                         }
                     };
                     if one.is_some_and(|(_, k, _, _)| k != Kind::Pen) {
-                        btn(ui, "t-text", "Edit text", "edit");
+                        btn(ui, "t-text", "Edit text  (double-click)", "edit");
                     }
-                    btn(ui, "copy", "Duplicate", "dup");
+                    btn(ui, "copy", "Duplicate  ⌘D", "dup");
                     if one.is_some_and(|(_, _, bindable, _)| bindable) {
-                        btn(ui, "t-arrow", "Connect to…", "connect");
+                        btn(ui, "t-arrow", "Connect to…  (or drag a dot)", "connect");
                     }
-                    btn(ui, "trash", "Delete", "del");
-                    btn(ui, "menu", "More", "more");
+                    btn(ui, "trash", "Delete  ⌫", "del");
+                    btn(ui, "menu", "More  (right-click)", "more");
                 });
             });
         });
