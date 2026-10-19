@@ -276,6 +276,7 @@ Names like S3, Lambda, BigQuery or Postgres get their icon automatically.
 | double-click | edit label / new text | ⌘S / ⌘O | save / open |
 | ⇧1 | zoom to fit | ⌘E / ⇧⌘E | export PNG / GIF |
 | ⇧⌘C | copy as image | ⌘ while dragging | disable snapping |
+| ⌘⏎ | present full screen (Esc exits) | | |
 
 ## Development
 

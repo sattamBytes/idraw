@@ -433,7 +433,7 @@ impl App {
                     &[("New", "", "new"), ("Open…", "⌘O", "open"), ("Save", "⌘S", "save"), ("Save as…", "⇧⌘S", "saveas"), (if self.autosave { "Auto-save: On ✓" } else { "Auto-save: Off" }, "", "autosave")],
                     &[("Import compose / k8s / Terraform / Mermaid…", "⌘I", "import"), ("Open icon packs folder", "", "icons-folder")],
                     &[("Command palette", "⌘K", "palette"), ("Diagram as code", "⌘/", "code"), ("Auto-layout", "⇧⌘L", "layout"), ("Request flows", "", "scenarios"), ("Simulate outage", "F", "failures"), ("Collaborate live…", "", "collab")],
-                    &[(if self.dark { "Light mode" } else { "Dark mode" }, "⇧⌘D", "dark"), (if self.doc.sketch { "Clean style" } else { "Sketch style" }, "⇧⌘K", "sketch"), ("Zoom to fit", "⇧1", "fit")],
+                    &[(if self.dark { "Light mode" } else { "Dark mode" }, "⇧⌘D", "dark"), (if self.doc.sketch { "Clean style" } else { "Sketch style" }, "⇧⌘K", "sketch"), ("Zoom to fit", "⇧1", "fit"), ("Present", "⌘⏎", "present")],
                 ];
                 for (gi, g) in groups.iter().enumerate() {
                     if gi > 0 {
@@ -457,11 +457,17 @@ impl App {
         if !self.code_open {
             egui::Area::new(Id::new("export")).anchor(Align2::RIGHT_TOP, vec2(self.right_x(), 10.0)).show(ctx, |ui| {
                 panel().show(ui, |ui| {
-                    let b = egui::Button::new(RichText::new("  Export  ").color(Color32::WHITE).strong()).fill(theme::INDIGO).corner_radius(8).min_size(vec2(0.0, 34.0));
-                    if ui.add(b).clicked() {
-                        self.export_menu = !self.export_menu;
-                        self.menu = false;
-                    }
+                    ui.horizontal(|ui| {
+                        let present = egui::Button::new(RichText::new("▶  Present").strong()).corner_radius(8).min_size(vec2(0.0, 34.0));
+                        if ui.add(present).on_hover_text("Show the diagram full screen (⌘⏎) · Esc to exit").clicked() {
+                            self.run(ctx, "present");
+                        }
+                        let b = egui::Button::new(RichText::new("  Export  ").color(Color32::WHITE).strong()).fill(theme::INDIGO).corner_radius(8).min_size(vec2(0.0, 34.0));
+                        if ui.add(b).clicked() {
+                            self.export_menu = !self.export_menu;
+                            self.menu = false;
+                        }
+                    });
                 });
             });
         }
@@ -1368,6 +1374,7 @@ impl App {
             item(ui, "Select all", "⌘A", "all");
             item(ui, "Auto-layout", "⇧⌘L", "layout");
             item(ui, "Zoom to fit", "⇧1", "fit");
+            item(ui, "Present", "⌘⏎", "present");
             return act;
         }
         item(ui, "Bring to front", "⇧⌘]", "z-front");

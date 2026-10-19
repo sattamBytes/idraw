@@ -100,6 +100,7 @@ pub(crate) const COMMANDS: &[(&str, &str, &str)] = &[
     ("Undo", "⌘Z", "undo"),
     ("Redo", "⇧⌘Z", "redo"),
     ("Zoom to fit", "⇧1", "fit"),
+    ("Present (full screen)", "⌘⏎", "present"),
     ("Select all", "⌘A", "all"),
     ("Duplicate", "⌘D", "dup"),
     ("Wrap selection in region", "⌘G", "group"),
@@ -195,6 +196,8 @@ pub struct App {
     drop_target: Option<u64>,
     drop_side: Option<u8>,
     fit_pending: bool,
+    /// presentation mode: Some(whether the window has gone full screen yet)
+    present: Option<bool>,
     cascade: f32,
     nudge: Option<Vec2>,
     // v0.2
@@ -258,6 +261,7 @@ impl App {
         let my_name = st.and_then(|s| s.get_string("name")).unwrap_or_else(|| std::env::var("USER").unwrap_or("me".into()));
         App {
             fit_pending: !doc.elements.is_empty(),
+            present: None,
             doc,
             undo: vec![],
             redo: vec![],
@@ -368,9 +372,10 @@ impl App {
             self.offset = Vec2::ZERO;
             return;
         };
-        // keep clear of the floating bars
-        let c = self.canvas.shrink2(vec2(40.0, 70.0));
-        self.zoom = ((c.width() - 40.0) / b.width()).min((c.height() - 40.0) / b.height()).clamp(0.2, 1.5);
+        // keep clear of the floating bars (none while presenting)
+        let c = if self.present.is_some() { self.canvas.shrink(40.0) } else { self.canvas.shrink2(vec2(40.0, 70.0)) };
+        let max = if self.present.is_some() { 3.0 } else { 1.5 };
+        self.zoom = ((c.width() - 40.0) / b.width()).min((c.height() - 40.0) / b.height()).clamp(0.2, max);
         self.offset = c.center() - self.canvas.min - b.center().to_vec2() * self.zoom;
     }
 
@@ -701,6 +706,21 @@ impl App {
                 self.path = None;
             }
             "fit" => self.fit(),
+            "present" => {
+                if self.present.take().is_some() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+                } else {
+                    self.finish_edit();
+                    self.sel.clear();
+                    self.menu = false;
+                    self.export_menu = false;
+                    self.playing = true;
+                    self.present = Some(false);
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+                    self.toast(ctx, "Presenting · drag to pan, pinch to zoom · Esc to exit");
+                }
+                self.fit_pending = true;
+            }
             "z-front" => self.reorder(2),
             "z-forward" => self.reorder(1),
             "z-backward" => self.reorder(-1),
@@ -910,7 +930,29 @@ impl App {
         let typing = ctx.wants_keyboard_input();
         let cmd = Modifiers::COMMAND;
         let shift_cmd = Modifiers::COMMAND | Modifiers::SHIFT;
+        if self.present.is_some() {
+            // presenting: only leave, refit, or simulate an outage
+            let (esc, toggle, fit, fail, fs) = ctx.input_mut(|i| {
+                (i.key_pressed(Key::Escape), i.consume_key(cmd, Key::Enter), i.key_pressed(Key::Num1), i.key_pressed(Key::F), i.viewport().fullscreen)
+            });
+            // the window left full screen some other way (green button, ⌃⌘F): stop presenting too
+            let left_fs = self.present == Some(true) && fs == Some(false);
+            if fs == Some(true) {
+                self.present = Some(true);
+            }
+            if esc || toggle || left_fs {
+                self.run(ctx, "present");
+            } else if fit {
+                self.fit();
+            } else if fail {
+                self.run(ctx, "failures");
+            }
+            return;
+        }
         ctx.input_mut(|i| {
+            if i.consume_key(cmd, Key::Enter) {
+                act.push("present");
+            }
             if i.consume_key(cmd, Key::K) {
                 act.push("palette");
             }
@@ -1261,6 +1303,15 @@ impl App {
             Tool::Rect | Tool::Ellipse | Tool::Diamond => NODE_SIZE,
             Tool::Sticky => vec2(200.0, 160.0),
             _ => vec2(420.0, 280.0),
+        }
+    }
+
+    /// Presentation mode: look, don't edit. Any drag pans; scroll and pinch zoom.
+    fn present_input(&mut self, ctx: &Context, resp: &Response) {
+        let (scroll, zd, hover) = ctx.input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.pointer.hover_pos()));
+        self.offset += resp.drag_delta() + scroll;
+        if let (true, Some(p)) = (zd != 1.0, hover) {
+            self.zoom_at(p, zd);
         }
     }
 
@@ -1896,21 +1947,34 @@ impl eframe::App for App {
             e.rect.max = e.rect.min + render::measure(ctx, &e.text, e.style.font, e.style.face.resolve(sketch));
         }
 
-        self.props_panel(ctx);
-        self.library_panel(ctx);
-        self.code_panel(ctx);
+        let presenting = self.present.is_some();
+        if !presenting {
+            self.props_panel(ctx);
+            self.library_panel(ctx);
+            self.code_panel(ctx);
+        }
 
         egui::CentralPanel::default().frame(Frame::new().fill(theme::canvas_bg())).show(ctx, |ui| {
             let rect = ui.max_rect();
+            // going full screen animates the window bigger: keep the diagram fitted as it grows
+            if presenting && rect.size() != self.canvas.size() {
+                self.fit_pending = true;
+            }
             self.canvas = rect;
             if self.fit_pending {
                 self.fit_pending = false;
                 self.fit();
             }
             let resp = ui.interact(rect, Id::new("canvas"), Sense::click_and_drag());
-            self.canvas_input(ctx, &resp);
+            if presenting {
+                self.present_input(ctx, &resp);
+            } else {
+                self.canvas_input(ctx, &resp);
+            }
             let space = ctx.input(|i| i.key_down(Key::Space)) && !ctx.wants_keyboard_input();
-            if matches!(self.drag, Drag::Pan) || space || self.tool == Tool::Hand {
+            if presenting {
+                ctx.set_cursor_icon(if resp.dragged() { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Default });
+            } else if matches!(self.drag, Drag::Pan) || space || self.tool == Tool::Hand {
                 ctx.set_cursor_icon(if matches!(self.drag, Drag::Pan) { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
             } else if self.rec.is_some() || self.failures {
                 ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -1934,7 +1998,9 @@ impl eframe::App for App {
 
             let p = ui.painter_at(rect);
             let v = self.view();
-            render::draw_grid(&p, rect, &v);
+            if !presenting {
+                render::draw_grid(&p, rect, &v);
+            }
             let phase = if self.playing { (now as f32 % LOOP_SECS) / LOOP_SECS } else { 0.0 };
             let hover_comment = resp
                 .hover_pos()
@@ -1951,7 +2017,7 @@ impl eframe::App for App {
                 } else {
                     self.scn_play = None;
                 }
-            } else {
+            } else if !presenting {
                 self.paint_overlays(&p);
             }
 
@@ -1968,21 +2034,27 @@ impl eframe::App for App {
             }
         });
 
-        self.toolbar(ctx);
-        self.top_right(ctx);
-        self.drag_ghost(ctx);
-        self.bottom_bars(ctx);
-        self.scenario_panel(ctx);
-        self.recording_banner(ctx);
-        self.collab_window(ctx);
-        self.picker_popup(ctx);
-        self.palette_popup(ctx);
-        self.text_editor(ctx);
-        self.toast_view(ctx);
+        if presenting {
+            self.toast_view(ctx);
+        } else {
+            self.toolbar(ctx);
+            self.top_right(ctx);
+            self.drag_ghost(ctx);
+            self.bottom_bars(ctx);
+            self.scenario_panel(ctx);
+            self.recording_banner(ctx);
+            self.collab_window(ctx);
+            self.picker_popup(ctx);
+            self.palette_popup(ctx);
+            self.text_editor(ctx);
+            self.toast_view(ctx);
+        }
 
         let animating = self.anim.is_some() || (self.playing && self.doc.elements.iter().any(|e| e.kind == Kind::Arrow && (e.style.flow != Flow::None || (self.failures && e.failover))));
-        self.mode_bars(ctx);
-        self.boundary_editor(ctx);
+        if !presenting {
+            self.mode_bars(ctx);
+            self.boundary_editor(ctx);
+        }
         if animating {
             ctx.request_repaint();
         }
