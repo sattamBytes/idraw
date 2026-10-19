@@ -1848,6 +1848,73 @@ impl App {
         }
     }
 
+    /// Touch screens: a bar floating above the selection with the everyday actions, since there's
+    /// no ⌫ key or right-click to reach for.
+    pub(super) fn selection_bar(&mut self, ctx: &Context) {
+        let idle = matches!(self.drag, Drag::None) && self.editing.is_none() && self.pending_arrow.is_none() && self.rec.is_none() && self.scn_play.is_none();
+        let Some(b) = self.doc.bounds_of(&self.sel).filter(|_| self.touch && idle) else {
+            self.bar_more = false;
+            return;
+        };
+        let v = self.view();
+        let (top, bottom) = (v.w2s(b.min), v.w2s(b.max));
+        let x = ((top.x + bottom.x) / 2.0).clamp(self.canvas.left() + 130.0, self.canvas.right() - 130.0);
+        // above the selection, or below it when there's no room under the toolbar
+        let above = top.y - 14.0 > self.canvas.top() + 120.0;
+        let (pivot, y) = if above { (Align2::CENTER_BOTTOM, top.y - 14.0) } else { (Align2::CENTER_TOP, bottom.y + 14.0) };
+        let one = (self.sel.len() == 1).then(|| self.doc.get(self.sel[0])).flatten().map(|e| (e.id, e.kind, e.bindable(), e.rect));
+        let mut act: Option<&'static str> = None;
+        egui::Area::new(Id::new("selection-bar")).pivot(pivot).fixed_pos(pos2(x, y)).order(Order::Foreground).show(ctx, |ui| {
+            panel().show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    let mut btn = |ui: &mut Ui, icon: &str, tip: &str, a: &'static str| {
+                        let r = icon_button(ui, &mut self.icons, icon, a == "more" && self.bar_more, tip);
+                        if tapped(ui, &r) {
+                            act = Some(a);
+                        }
+                    };
+                    if one.is_some_and(|(_, k, _, _)| k != Kind::Pen) {
+                        btn(ui, "t-text", "Edit text", "edit");
+                    }
+                    btn(ui, "copy", "Duplicate", "dup");
+                    if one.is_some_and(|(_, _, bindable, _)| bindable) {
+                        btn(ui, "t-arrow", "Connect to…", "connect");
+                    }
+                    btn(ui, "trash", "Delete", "del");
+                    btn(ui, "menu", "More", "more");
+                });
+                if self.bar_more {
+                    ui.separator();
+                    if let Some(a) = self.canvas_menu(ui) {
+                        act = Some(a);
+                    }
+                }
+            });
+        });
+        match act {
+            Some("more") => self.bar_more = !self.bar_more,
+            Some("edit") => {
+                if let Some((id, ..)) = one {
+                    self.start_edit(id);
+                }
+            }
+            Some("connect") => {
+                if let Some((src, _, _, r)) = one {
+                    // leaves from the right side; the next tap picks what it connects to
+                    let id = self.start_connector(src, 1, side_point(r, 1));
+                    self.pending_arrow = Some((id, src));
+                    self.toast(ctx, "Now tap the shape to connect to");
+                }
+            }
+            Some(a) => {
+                self.bar_more = false;
+                self.run(ctx, a);
+            }
+            None => {}
+        }
+    }
+
     pub(super) fn toast_view(&mut self, ctx: &Context) {
         let Some((msg, until)) = self.toast.clone() else { return };
         if ctx.input(|i| i.time) > until {

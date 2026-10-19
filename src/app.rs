@@ -232,6 +232,8 @@ pub struct App {
     autosave_check: f64,
     /// connector started by clicking a connection dot; follows the mouse until the next click
     pending_arrow: Option<(u64, u64)>,
+    /// touch: the floating bar's "more" menu is open
+    bar_more: bool,
     /// window focus last frame, to re-send the cursor when idraw becomes active
     was_focused: bool,
     /// a touch screen is in use: bigger connection dots, and they show on the selected shape
@@ -321,6 +323,7 @@ impl App {
             last_saved: String::new(),
             autosave_check: 0.0,
             pending_arrow: None,
+            bar_more: false,
             was_focused: true,
             touch: false,
             press_at: None,
@@ -2038,6 +2041,7 @@ impl eframe::App for App {
             self.toast_view(ctx);
         } else {
             self.toolbar(ctx);
+            self.selection_bar(ctx);
             self.top_right(ctx);
             self.drag_ghost(ctx);
             self.bottom_bars(ctx);
