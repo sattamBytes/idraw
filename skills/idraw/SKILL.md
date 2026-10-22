@@ -67,6 +67,7 @@ Pick one per diagram and commit to it:
 - **Hub and spoke** (event bus, shared DB): hub in the middle, consumers on a circle or a grid around it.
 - **Zones** (trust boundaries, cloud vs on-prem, regions): nested boundaries; the boundary *is* the message.
 - **Before / after** or **A vs B**: two mirrored halves with a divider and titles.
+- **Several flows of one system** (checkout, login, payments): one page per flow with `"pages": [{ "name", "elements" }]` (see reference.md). Render each with `--page N` and look at every one.
 
 Spacing that looks designed: snap to a 20px grid; 100–140px gaps between components side by side, 60–80px between rows; 40px padding inside boundaries (60 at the top for the title). Keep columns aligned on the same x.
 

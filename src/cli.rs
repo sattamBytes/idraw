@@ -15,6 +15,7 @@ const HELP: &str = "idraw — diagrams for system design
   idraw render <file> [-o out] [opts]    draw to .png (default), .svg or .gif
         --dark   dark theme    --4k   3840px wide    --1x   screen size (default 2x)
         --failures   show the outage simulation
+        --page <n|name>   one page of a multi-page file (default: the first)
   idraw check <file>                     problems with exact fixes: bad ids, unknown icons, overlaps,
                                          misaligned rows, detours, crossings, hidden labels…
   idraw icons [search…]                  list icon ids for components (\"icon\": \"aws-lambda\")
@@ -70,7 +71,8 @@ fn report(r: Result<bool, String>) -> i32 {
 }
 
 fn load(rest: &[String]) -> Result<(PathBuf, Doc, Vec<String>), String> {
-    let file = rest.iter().find(|a| !a.starts_with('-')).ok_or("which file? e.g. idraw check diagram.idraw")?;
+    // the first plain argument that isn't the value of -o / --page
+    let file = rest.iter().enumerate().find(|(i, a)| !(a.starts_with('-') || *i > 0 && matches!(rest[i - 1].as_str(), "-o" | "--page"))).map(|(_, a)| a).ok_or("which file? e.g. idraw check diagram.idraw")?;
     let text = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
     let (mut doc, warn) = lenient::parse(&text).map_err(|e| format!("{file}: {e}"))?;
     doc.fit_nodes();
@@ -78,13 +80,30 @@ fn load(rest: &[String]) -> Result<(PathBuf, Doc, Vec<String>), String> {
 }
 
 fn render(rest: &[String]) -> Result<bool, String> {
-    let (src, doc, warn) = load(rest)?;
+    let (src, mut doc, warn) = load(rest)?;
+    // multi-page files: --page 2 or --page "Login" (default: the first page)
+    let page = match rest.iter().position(|a| a == "--page") {
+        Some(i) => {
+            let want = rest.get(i + 1).ok_or("--page needs a number or a name")?;
+            let n = doc.pages.len();
+            let found = want.parse::<usize>().ok().filter(|k| (1..=n).contains(k)).map(|k| k - 1).or_else(|| doc.pages.iter().position(|p| p.name.eq_ignore_ascii_case(want)));
+            Some(found.ok_or_else(|| format!("no page \"{want}\" (this file has {n} pages: {})", doc.pages.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ")))?)
+        }
+        None => None,
+    };
+    if let Some(i) = page {
+        doc.switch_page(i);
+        doc.fit_nodes();
+    } else if doc.pages.len() > 1 {
+        eprintln!("note: {} pages; rendering page {} \"{}\" (use --page <number|name> for another)", doc.pages.len(), doc.page + 1, doc.pages[doc.page].name);
+    }
     if doc.elements.is_empty() {
         return Err("nothing to draw".into());
     }
     let flag = |f: &str| rest.iter().any(|a| a == f);
     let out = match rest.iter().position(|a| a == "-o") {
         Some(i) => PathBuf::from(rest.get(i + 1).ok_or("-o needs a path")?),
+        None if page.is_some() => src.with_file_name(format!("{}-{}.png", src.file_stem().unwrap_or_default().to_string_lossy(), doc.page + 1)),
         None => src.with_extension("png"),
     };
     let q = if flag("--4k") {
@@ -165,7 +184,25 @@ fn icons_list(rest: &[String]) {
 
 /// Problems a person would spot at a glance. Returns false when something is broken (not just untidy).
 fn check(rest: &[String]) -> Result<bool, String> {
-    let (_, doc, warn) = load(rest)?;
+    let (_, mut doc, warn) = load(rest)?;
+    if doc.pages.len() < 2 {
+        return Ok(check_page(&doc, warn, ""));
+    }
+    // file-wide warnings first, then every page on its own
+    for w in &warn {
+        println!("warning: {w}");
+    }
+    let mut ok = true;
+    for i in 0..doc.pages.len() {
+        doc.switch_page(i);
+        doc.fit_nodes();
+        ok &= check_page(&doc, vec![], &format!("page {} \"{}\": ", i + 1, doc.pages[i].name));
+    }
+    Ok(ok)
+}
+
+/// Checks the open page; `at` prefixes every line (the page, in a multi-page file).
+fn check_page(doc: &Doc, warn: Vec<String>, at: &str) -> bool {
     let mut errors: Vec<String> = vec![];
     let mut tips: Vec<String> = warn;
     let name = name_of;
@@ -209,20 +246,20 @@ fn check(rest: &[String]) -> Result<bool, String> {
             }
         }
     }
-    let layout = layout_issues(&doc);
+    let layout = layout_issues(doc);
     for e in &errors {
-        println!("error: {e}");
+        println!("{at}error: {e}");
     }
     for t in &tips {
-        println!("warning: {t}");
+        println!("{at}warning: {t}");
     }
     for l in &layout {
-        println!("layout: {l}");
+        println!("{at}layout: {l}");
     }
     let arrows = doc.elements.iter().filter(|e| e.kind == Kind::Arrow).count();
     let size = doc.all_bounds().map_or("empty".into(), |b| format!("{:.0}×{:.0}", b.width(), b.height()));
-    println!("{} elements ({} connectors), {size}: {} errors, {} warnings, {} layout issues", doc.elements.len(), arrows, errors.len(), tips.len(), layout.len());
-    Ok(errors.is_empty())
+    println!("{at}{} elements ({} connectors), {size}: {} errors, {} warnings, {} layout issues", doc.elements.len(), arrows, errors.len(), tips.len(), layout.len());
+    errors.is_empty()
 }
 
 fn name_of(e: &Element) -> String {

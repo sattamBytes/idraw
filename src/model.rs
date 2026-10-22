@@ -488,10 +488,25 @@ pub struct Scenario {
     pub steps: Vec<Step>,
 }
 
+/// One canvas of a multi-page file. The open page's elements live in `Doc::elements`,
+/// so its entry here stays empty until another page is opened.
+#[derive(Clone, Default, Debug, Serialize, Deserialize)]
+pub struct Page {
+    pub name: String,
+    #[serde(default)]
+    pub elements: Vec<Element>,
+}
+
 #[derive(Clone, Default, Debug, Serialize, Deserialize)]
 pub struct Doc {
+    /// the open page (the whole diagram when there are no pages)
     pub elements: Vec<Element>,
     pub next_id: u64,
+    /// empty for a single-page diagram; otherwise every page in order, `page` being the open one
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pages: Vec<Page>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub page: usize,
     #[serde(default)]
     pub scenarios: Vec<Scenario>,
     #[serde(default)]
@@ -509,6 +524,104 @@ pub struct Doc {
 }
 
 impl Doc {
+    /// Opens page `i`: its elements move into `elements`, the open page's go back to its slot.
+    pub fn switch_page(&mut self, i: usize) {
+        if i == self.page || i >= self.pages.len() {
+            return;
+        }
+        std::mem::swap(&mut self.elements, &mut self.pages[self.page].elements);
+        self.page = i;
+        std::mem::swap(&mut self.elements, &mut self.pages[i].elements);
+    }
+
+    pub fn page_elements(&self, i: usize) -> &[Element] {
+        if i == self.page { &self.elements } else { &self.pages[i].elements }
+    }
+
+    /// Is `name` used by a page other than `skip`? (names are compared ignoring case)
+    pub fn page_name_taken(&self, name: &str, skip: Option<usize>) -> bool {
+        self.pages.iter().enumerate().any(|(i, p)| Some(i) != skip && p.name.trim().eq_ignore_ascii_case(name.trim()))
+    }
+
+    /// `want` if no page uses it, else `want 2`, `want 3`…
+    pub fn unique_page_name(&self, want: &str) -> String {
+        (1..).map(|k| if k == 1 { want.to_string() } else { format!("{want} {k}") }).find(|n| !self.page_name_taken(n, None)).unwrap()
+    }
+
+    /// The first free "Page N", counting from the page it would become.
+    pub fn next_page_name(&self) -> String {
+        (self.pages.len().max(1) + 1..).map(|n| format!("Page {n}")).find(|n| !self.page_name_taken(n, None)).unwrap()
+    }
+
+    /// Adds an empty page after the others (turning a single diagram into "Page 1") and returns its index.
+    pub fn add_page(&mut self, name: &str) -> usize {
+        if self.pages.is_empty() {
+            self.pages.push(Page { name: "Page 1".into(), elements: vec![] });
+            self.page = 0;
+        }
+        self.pages.push(Page { name: name.into(), elements: vec![] });
+        self.pages.len() - 1
+    }
+
+    /// Copies page `i` (with fresh ids, connectors still attached) right after it.
+    pub fn duplicate_page(&mut self, i: usize) -> usize {
+        let mut els = self.page_elements(i).to_vec();
+        let mut map = HashMap::new();
+        for e in &mut els {
+            self.next_id += 1;
+            map.insert(e.id, self.next_id);
+            e.id = self.next_id;
+        }
+        for e in &mut els {
+            for end in [&mut e.from, &mut e.to] {
+                end.id = end.id.and_then(|id| map.get(&id).copied());
+            }
+        }
+        let name = self.unique_page_name(&format!("{} copy", self.pages[i].name));
+        self.pages.insert(i + 1, Page { name, elements: els });
+        if self.page > i {
+            self.page += 1;
+        }
+        i + 1
+    }
+
+    /// Deletes page `i` (never the last one). One page left means a plain single diagram again.
+    pub fn remove_page(&mut self, i: usize) {
+        if self.pages.len() < 2 || i >= self.pages.len() {
+            return;
+        }
+        if i == self.page {
+            self.switch_page(if i == 0 { 1 } else { i - 1 });
+        }
+        self.pages.remove(i);
+        if self.page > i {
+            self.page -= 1;
+        }
+        if self.pages.len() == 1 {
+            self.pages.clear();
+            self.page = 0;
+        }
+    }
+
+    /// Moves page `i` to position `to`, keeping the open page open.
+    pub fn move_page(&mut self, i: usize, to: usize) {
+        if i >= self.pages.len() || to >= self.pages.len() || i == to {
+            return;
+        }
+        let open = self.page;
+        let p = self.pages.remove(i);
+        self.pages.insert(to, p);
+        self.page = if open == i {
+            to
+        } else if i < open && to >= open {
+            open - 1
+        } else if i > open && to <= open {
+            open + 1
+        } else {
+            open
+        };
+    }
+
     pub fn add(&mut self, mut e: Element) -> u64 {
         self.next_id += 1;
         e.id = self.next_id;
@@ -2059,4 +2172,8 @@ mod tests {
         assert_eq!(s.step, 1);
         assert!((s.travel - 0.5).abs() < 1e-4);
     }
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }

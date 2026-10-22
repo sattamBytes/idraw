@@ -27,42 +27,33 @@ pub fn parse(text: &str) -> Result<(Doc, Vec<String>), String> {
     let native = obj.contains_key("next_id");
     let mut warn = vec![];
     let els = obj.remove("elements").unwrap_or(json!([]));
-    let els = els.as_array().ok_or("\"elements\" must be a list")?;
+    let els = els.as_array().ok_or("\"elements\" must be a list")?.clone();
+    let pages = obj.remove("pages").unwrap_or(json!([]));
+    let pages = pages.as_array().ok_or("\"pages\" must be a list of { \"name\", \"elements\" }")?.clone();
+    let page_els = |p: &Value| p.get("elements").and_then(Value::as_array).cloned().unwrap_or_default();
 
-    // ids: keep numbers, give string ids (and missing ones) fresh numbers
-    let mut next = els.iter().filter_map(|e| e.get("id").and_then(Value::as_u64)).max().unwrap_or(0);
+    // numeric ids are kept, so fresh ones start above the biggest anywhere in the file
+    let in_pages = pages.iter().filter_map(|p| p.get("elements").and_then(Value::as_array)).flatten();
+    let mut next = els.iter().chain(in_pages).filter_map(|e| e.get("id").and_then(Value::as_u64)).max().unwrap_or(0);
     let mut keys: HashMap<String, u64> = HashMap::new();
-    let mut ids = vec![];
-    for (i, e) in els.iter().enumerate() {
-        let id = match e.get("id") {
-            Some(Value::Number(n)) if n.as_u64().is_some() => n.as_u64().unwrap(),
-            other => {
-                next += 1;
-                if let Some(Value::String(s)) = other {
-                    if keys.insert(s.clone(), next).is_some() {
-                        warn.push(format!("element {i}: id \"{s}\" is used twice"));
-                    }
-                }
-                next
-            }
-        };
-        ids.push(id);
-    }
-
-    let mut out = vec![];
-    for (i, (raw, id)) in els.iter().zip(&ids).enumerate() {
-        let Some(raw) = raw.as_object() else {
-            warn.push(format!("element {i}: not an object, skipped"));
-            continue;
-        };
-        match element(raw, *id, &keys, &mut warn) {
-            Ok(e) => out.push(e),
-            Err(m) => warn.push(format!("element {i} ({}): {m}, skipped", label(raw))),
+    let mut out = convert(&els, &mut next, &mut keys, &mut warn, native, "");
+    let mut conv_pages = vec![];
+    for (pi, p) in pages.iter().enumerate() {
+        let name = p.get("name").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| format!("Page {}", pi + 1));
+        if conv_pages.iter().any(|c: &Value| c["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(&name))) {
+            warn.push(format!("two pages are called \"{name}\"; give each a different name"));
         }
+        let els = convert(&page_els(p), &mut next, &mut keys, &mut warn, native, &format!("page \"{name}\", "));
+        conv_pages.push(json!({ "name": name, "elements": els }));
     }
-    if !native {
-        // boundaries sit behind everything else
-        out.sort_by_key(|e| e["kind"] != "Region");
+    if !conv_pages.is_empty() {
+        // the open page's elements live at the top level
+        let open = obj.get("page").and_then(Value::as_u64).unwrap_or(0).min(conv_pages.len() as u64 - 1) as usize;
+        if out.is_empty() {
+            out = std::mem::take(conv_pages[open]["elements"].as_array_mut().unwrap());
+        }
+        obj.insert("page".into(), json!(open));
+        obj.insert("pages".into(), Value::Array(conv_pages));
     }
     obj.insert("elements".into(), Value::Array(out));
     // scenario steps may name elements by their string id too
@@ -84,6 +75,47 @@ pub fn parse(text: &str) -> Result<(Doc, Vec<String>), String> {
     }
     let doc: Doc = serde_json::from_value(root).map_err(|e| e.to_string())?;
     Ok((doc, warn))
+}
+
+/// Turns one list of hand-written elements into native ones. String ids are local to the list
+/// (each page may reuse "api"); `all_keys` collects them for scenario steps (first one wins).
+fn convert(els: &[Value], next: &mut u64, all_keys: &mut HashMap<String, u64>, warn: &mut Vec<String>, native: bool, at: &str) -> Vec<Value> {
+    let mut keys: HashMap<String, u64> = HashMap::new();
+    let mut ids = vec![];
+    for (i, e) in els.iter().enumerate() {
+        let id = match e.get("id") {
+            Some(Value::Number(n)) if n.as_u64().is_some() => n.as_u64().unwrap(),
+            other => {
+                *next += 1;
+                if let Some(Value::String(s)) = other {
+                    if keys.insert(s.clone(), *next).is_some() {
+                        warn.push(format!("{at}element {i}: id \"{s}\" is used twice"));
+                    }
+                }
+                *next
+            }
+        };
+        ids.push(id);
+    }
+    let mut out = vec![];
+    for (i, (raw, id)) in els.iter().zip(&ids).enumerate() {
+        let Some(raw) = raw.as_object() else {
+            warn.push(format!("{at}element {i}: not an object, skipped"));
+            continue;
+        };
+        match element(raw, *id, &keys, warn) {
+            Ok(e) => out.push(e),
+            Err(m) => warn.push(format!("{at}element {i} ({}): {m}, skipped", label(raw))),
+        }
+    }
+    if !native {
+        // boundaries sit behind everything else
+        out.sort_by_key(|e| e["kind"] != "Region");
+    }
+    for (k, v) in keys {
+        all_keys.entry(k).or_insert(v);
+    }
+    out
 }
 
 fn label(raw: &Map<String, Value>) -> String {
@@ -359,6 +391,53 @@ mod tests {
         assert_eq!((e.from.id, e.to.id, e.to.side), (Some(api.id), Some(db.id), Some(3)));
         assert_eq!(e.style.flow, Flow::Request);
         assert!(d.next_id >= 4);
+    }
+
+    #[test]
+    fn pages_load_switch_and_survive_a_save() {
+        let src = r#"{ "pages": [
+            { "name": "Checkout", "elements": [
+                { "kind": "node", "id": "api", "title": "Orders API", "x": 0, "y": 0 },
+                { "kind": "node", "id": "db", "title": "Orders DB", "x": 300, "y": 0 },
+                { "kind": "edge", "from": "api", "to": "db" } ] },
+            { "name": "Login", "elements": [
+                { "kind": "node", "id": "api", "title": "Auth API", "x": 0, "y": 0 },
+                { "kind": "node", "id": "users", "title": "Users", "x": 300, "y": 0 },
+                { "kind": "edge", "from": "api", "to": "users" } ] }
+        ] }"#;
+        let (mut d, warn) = parse(src).unwrap();
+        assert!(warn.is_empty(), "{warn:?}");
+        assert_eq!(d.pages.len(), 2);
+        assert_eq!(d.elements.len(), 3, "the first page is open");
+        assert!(d.pages[0].elements.is_empty());
+        // "api" means a different box on each page
+        d.switch_page(1);
+        let edge = d.elements.iter().find(|e| e.kind == Kind::Arrow).unwrap();
+        assert_eq!(d.get(edge.from.id.unwrap()).unwrap().text, "Auth API");
+        // a saved file opens on the same page with everything intact
+        let back: Doc = serde_json::from_str(&serde_json::to_string(&d).unwrap()).unwrap();
+        assert_eq!((back.page, back.elements.len(), back.pages[0].elements.len()), (1, 3, 3));
+        // duplicates get fresh ids and keep their connectors attached
+        let j = d.duplicate_page(1);
+        d.switch_page(j);
+        let edge = d.elements.iter().find(|e| e.kind == Kind::Arrow).unwrap();
+        assert!(d.get(edge.to.id.unwrap()).is_some_and(|e| e.text == "Users"));
+        assert!(d.page_elements(1).iter().all(|e| d.get(e.id).is_none()), "no shared ids");
+        // reorder keeps the open page open; deleting down to one page leaves a plain diagram
+        d.move_page(2, 0);
+        assert_eq!((d.page, d.pages[0].name.as_str()), (0, "Login copy"));
+        d.remove_page(0);
+        d.remove_page(1);
+        assert!(d.pages.is_empty() && d.page == 0 && d.elements.len() == 3);
+        // page names stay unique
+        let mut d = Doc::default();
+        d.add_page("Page 2");
+        d.add_page("Page 3");
+        d.remove_page(1); // Page 1, Page 3 left
+        assert_eq!(d.next_page_name(), "Page 4", "not a second \"Page 3\"");
+        assert_eq!(d.duplicate_page(0), 1);
+        assert_eq!(d.unique_page_name("Page 1 copy"), "Page 1 copy 2");
+        assert!(d.page_name_taken("page 3", None) && !d.page_name_taken("Page 3", Some(2)));
     }
 
     #[test]

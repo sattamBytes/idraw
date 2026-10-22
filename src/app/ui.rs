@@ -49,13 +49,14 @@ fn tapped(ui: &Ui, r: &Response) -> bool {
         return true;
     }
     let down_here = r.id.with("finger-down");
-    if r.is_pointer_button_down_on() {
+    // only the primary button (a right-click opens menus, it isn't a tap)
+    if r.is_pointer_button_down_on() && ui.input(|i| i.pointer.primary_down()) {
         ui.ctx().data_mut(|d| d.insert_temp(down_here, true));
     }
     let (pressed_here, released) = ui.input(|i| {
-        let pressed_here = i.events.iter().any(|e| matches!(e, egui::Event::PointerButton { pos, pressed: true, .. } if r.rect.contains(*pos)));
+        let pressed_here = i.events.iter().any(|e| matches!(e, egui::Event::PointerButton { pos, pressed: true, button: PointerButton::Primary, .. } if r.rect.contains(*pos)));
         let released = i.events.iter().rev().find_map(|e| match e {
-            egui::Event::PointerButton { pos, pressed: false, .. } => Some(*pos),
+            egui::Event::PointerButton { pos, pressed: false, button: PointerButton::Primary, .. } => Some(*pos),
             _ => None,
         });
         (pressed_here, released)
@@ -84,8 +85,9 @@ pub(super) fn icon_button_sense(ui: &mut Ui, icons: &mut Icons, icon: &str, acti
     if let Some(t) = icons.get(ui.ctx(), icon) {
         ui.painter().image(t, Rect::from_center_size(rect.center(), vec2(18.0, 18.0)), render::UV, if active { theme::active_fg() } else { theme::text() });
     }
-    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
-    if tip.is_empty() { resp } else { resp.on_hover_text(tip) }
+    // a disabled button keeps its tooltip (saying why) but not the hand cursor
+    let resp = if resp.enabled() { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp };
+    if tip.is_empty() { resp } else { resp.on_hover_text(tip).on_disabled_hover_text(tip) }
 }
 
 fn lib_tile(ui: &mut Ui, icons: &mut Icons, it: &icons::Icon) -> Response {
@@ -426,6 +428,7 @@ impl App {
             return;
         }
         let mut act = None;
+        let mut open_recent: Option<PathBuf> = None;
         egui::Area::new(Id::new("menu-pop")).anchor(Align2::LEFT_TOP, vec2(12.0, 62.0)).order(Order::Foreground).show(ctx, |ui| {
             panel().show(ui, |ui| {
                 ui.set_width(250.0);
@@ -444,9 +447,27 @@ impl App {
                             act = Some(*a);
                         }
                     }
+                    // recently opened files, right under the file commands (gone ones are skipped)
+                    let recent: Vec<&PathBuf> = self.recent.iter().filter(|p| gi == 0 && Some(*p) != self.path.as_ref() && p.exists()).take(5).collect();
+                    if !recent.is_empty() {
+                        ui.separator();
+                        ui.label(RichText::new("Recent").size(11.0).color(theme::muted()).strong());
+                        for p in recent {
+                            let name = p.file_stem().unwrap_or_default().to_string_lossy();
+                            let folder = p.parent().and_then(|d| d.file_name()).unwrap_or_default().to_string_lossy();
+                            let b = egui::Button::new(name).shortcut_text(folder).frame(false).min_size(vec2(240.0, 28.0)).truncate();
+                            if ui.add(b).on_hover_text(p.display().to_string()).clicked() {
+                                open_recent = Some(p.clone());
+                            }
+                        }
+                    }
                 }
             });
         });
+        if let Some(p) = open_recent {
+            self.menu = false;
+            self.open_path(ctx, p);
+        }
         if let Some(a) = act {
             self.menu = false;
             self.run(ctx, a);
@@ -1037,6 +1058,273 @@ impl App {
         }
     }
 
+    /// The Pages popup above the bottom-right bar: one row per page (thumbnail, name, size) and
+    /// "New page" at the bottom. Opening a page, or clicking anywhere else, closes it.
+    pub(super) fn pages_popup(&mut self, ctx: &Context) {
+        const W: f32 = 300.0;
+        const ROW: f32 = 56.0;
+        const THUMB: Vec2 = vec2(76.0, 44.0);
+        if !self.pages_open {
+            self.pages_close_at = None;
+            return;
+        }
+        let n = self.doc.pages.len();
+        let cur = self.doc.page;
+        // drawable copies of the other pages, rebuilt only when a page changed
+        for i in 0..n {
+            if i == cur {
+                continue;
+            }
+            let sig = page_sig(&self.doc.pages[i].elements);
+            if self.thumbs.get(&i).is_none_or(|(s, _)| *s != sig) {
+                let mut d = Doc::default();
+                d.elements = self.doc.pages[i].elements.clone();
+                d.sketch = self.doc.sketch;
+                self.thumbs.insert(i, (sig, d));
+            }
+        }
+        self.thumbs.retain(|i, _| *i < n && *i != cur);
+
+        // a single diagram shows as one row, "Page 1"; New page turns it into the first of several
+        let count = n.max(1);
+        let was_renaming = self.renaming.is_some();
+        // a page menu open at the start of the frame owns this frame's clicks
+        let menu_was_open = ctx.memory(|m| m.any_popup_open());
+        let (mut go, mut add, mut act, mut renamed, mut cancel) = (None, false, None, None, false);
+        let mut taken: Option<String> = None;
+        let page_menu = |ui: &mut Ui, i: usize, act: &mut Option<(&'static str, usize)>| {
+            ui.set_min_width(170.0);
+            for (label, a) in [("Rename", "rename"), ("Duplicate", "duplicate"), ("Move up", "left"), ("Move down", "right")] {
+                let ok = match a {
+                    "left" => i > 0,
+                    "right" => i + 1 < n,
+                    _ => true,
+                };
+                if ui.add_enabled(ok, egui::Button::new(label).frame(false).min_size(vec2(170.0, 26.0))).clicked() {
+                    *act = Some((a, i));
+                    ui.close_menu();
+                }
+            }
+            ui.separator();
+            if ui.add(egui::Button::new(RichText::new("Delete page").color(theme::RED)).frame(false).min_size(vec2(170.0, 26.0))).clicked() {
+                *act = Some(("delete", i));
+                ui.close_menu();
+            }
+        };
+        let area = egui::Area::new(Id::new("pages-pop")).anchor(Align2::RIGHT_BOTTOM, vec2(self.right_x(), -64.0)).order(Order::Foreground).show(ctx, |ui| {
+            panel().inner_margin(Margin::same(6)).show(ui, |ui| {
+                ui.set_width(W);
+                ui.spacing_mut().item_spacing.y = 2.0;
+                let (hr, _) = ui.allocate_exact_size(vec2(W, 30.0), Sense::hover());
+                ui.painter().text(pos2(hr.min.x + 10.0, hr.center().y), Align2::LEFT_CENTER, "Pages", FontId::proportional(13.0), theme::text());
+                ui.painter().text(pos2(hr.max.x - 10.0, hr.center().y), Align2::RIGHT_CENTER, count.to_string(), FontId::proportional(12.0), theme::muted());
+                egui::ScrollArea::vertical().max_height(ROW * 6.5).auto_shrink([false, true]).show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    for i in 0..count {
+                        let active = i == cur;
+                        let (r, resp) = ui.allocate_exact_size(vec2(W, ROW), Sense::click());
+                        let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+                        let over = ui.rect_contains_pointer(r);
+                        let bg = if active { theme::INDIGO.gamma_multiply(0.10) } else if over { theme::hover() } else { Color32::TRANSPARENT };
+                        ui.painter().rect_filled(r, CornerRadius::same(8), bg);
+
+                        // thumbnail
+                        let tr = Rect::from_min_size(pos2(r.min.x + 8.0, r.center().y - THUMB.y / 2.0), THUMB);
+                        let edge = if active { theme::INDIGO.gamma_multiply(0.55) } else { theme::panel_border() };
+                        ui.painter().rect(tr, CornerRadius::same(6), theme::canvas_bg(), Stroke::new(1.0, edge), StrokeKind::Inside);
+                        let d = if active { &self.doc } else { &self.thumbs[&i].1 };
+                        if let Some(b) = d.all_bounds() {
+                            let inner = tr.shrink(5.0);
+                            let z = (inner.width() / b.width().max(1.0)).min(inner.height() / b.height().max(1.0)).min(1.0);
+                            let v = View { origin: inner.center() - b.center().to_vec2() * z, zoom: z };
+                            let opts = Opts { phase: 0.0, dark: self.dark, sketch: d.sketch, failures: false, hide_text: None, open_comments: &[], skip_arrows: false };
+                            render::draw_doc(&ui.painter_at(tr.shrink(1.0)), ctx, d, &v, &mut self.icons, &opts);
+                        }
+
+                        // name and size
+                        let tx = tr.max.x + 12.0;
+                        let name_r = Rect::from_min_max(pos2(tx, r.min.y + 8.0), pos2(r.max.x - 40.0, r.min.y + 30.0));
+                        let shapes = d.elements.iter().filter(|e| e.kind != Kind::Arrow).count();
+                        let sub = match shapes {
+                            0 => "Empty".to_string(),
+                            1 => "1 shape".to_string(),
+                            k => format!("{k} shapes"),
+                        };
+                        match self.renaming.as_mut().filter(|(r, _)| *r == i) {
+                            Some((_, text)) => {
+                                // a child ui, so placing it doesn't move the list's layout cursor
+                                // Enter is handled here (not by the field) so a taken name keeps the keyboard
+                                let out = TextEdit::singleline(text).margin(vec2(4.0, 2.0)).return_key(None).show(&mut ui.new_child(egui::UiBuilder::new().max_rect(name_r)));
+                                let te = out.response;
+                                let select_all = |st: egui::text_edit::TextEditState, len: usize| {
+                                    let mut st = st;
+                                    st.cursor.set_char_range(Some(egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(len))));
+                                    st.store(ctx, te.id);
+                                };
+                                if std::mem::take(&mut self.rename_focus) {
+                                    // take the keyboard and select the old name, so typing replaces it
+                                    te.request_focus();
+                                    select_all(out.state.clone(), text.chars().count());
+                                    // run the next frame now, so the keyboard is ready before the first key
+                                    ctx.request_repaint();
+                                }
+                                let enter = te.has_focus() && ui.input(|inp| inp.key_pressed(Key::Enter));
+                                if ui.input(|inp| inp.key_pressed(Key::Escape)) {
+                                    cancel = true;
+                                } else if enter && self.doc.page_name_taken(text, Some(i)) {
+                                    // taken: keep the field and the keyboard, select the text to retype it
+                                    taken = Some(text.trim().to_string());
+                                    select_all(out.state, text.chars().count());
+                                } else if enter || te.lost_focus() {
+                                    renamed = Some((i, text.trim().to_string()));
+                                }
+                            }
+                            None => {
+                                let name = if n == 0 { "Page 1".to_string() } else { self.doc.pages[i].name.clone() };
+                                let color = if active { theme::INDIGO } else { theme::text() };
+                                ui.new_child(egui::UiBuilder::new().max_rect(name_r)).add(egui::Label::new(RichText::new(name).size(13.5).color(color).strong()).truncate().selectable(false));
+                            }
+                        }
+                        ui.painter().text(pos2(tx, r.min.y + 41.0), Align2::LEFT_CENTER, sub, FontId::proportional(11.5), theme::muted());
+
+                        // ⋯ menu, shown on hover and on the open page
+                        let more = Rect::from_center_size(pos2(r.max.x - 22.0, r.center().y), vec2(28.0, 28.0));
+                        let menu_id = ui.id().with(("page-menu", i));
+                        let menu_open = ui.memory(|m| m.is_popup_open(menu_id));
+                        let mut on_more = false;
+                        if n > 1 && (over || active || menu_open) {
+                            let m = ui.interact(more, ui.id().with(("page-more", i)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+                            on_more = m.hovered() || m.is_pointer_button_down_on();
+                            if m.hovered() || menu_open {
+                                ui.painter().rect_filled(more, CornerRadius::same(6), theme::hover());
+                            }
+                            for dx in [-5.0, 0.0, 5.0] {
+                                ui.painter().circle_filled(more.center() + vec2(dx, 0.0), 1.6, theme::muted());
+                            }
+                            if m.clicked() {
+                                ui.memory_mut(|mem| mem.toggle_popup(menu_id));
+                            }
+                            if ui.memory(|mem| mem.is_popup_open(menu_id)) {
+                                // opens leftwards from the button (the popup sits at the window's right edge),
+                                // and upwards when there's no room below
+                                let up = more.bottom() + 170.0 > ctx.screen_rect().bottom();
+                                let (pivot, at) = if up { (Align2::RIGHT_BOTTOM, more.right_top() - vec2(0.0, 4.0)) } else { (Align2::RIGHT_TOP, more.right_bottom() + vec2(0.0, 4.0)) };
+                                let before = act;
+                                let menu = egui::Area::new(menu_id).order(Order::Tooltip).pivot(pivot).fixed_pos(at).constrain(true).show(ctx, |ui| {
+                                    Frame::menu(ui.style()).show(ui, |ui| page_menu(ui, i, &mut act));
+                                });
+                                let r = menu.response.rect;
+                                let away = ui.input(|inp| inp.pointer.any_pressed() && inp.pointer.interact_pos().is_some_and(|p| !r.contains(p) && !more.contains(p)));
+                                if act != before || away {
+                                    ui.memory_mut(|mem| mem.close_popup());
+                                }
+                            }
+                        }
+                        if n > 1 {
+                            resp.context_menu(|ui| page_menu(ui, i, &mut act));
+                        }
+                        // (taps inside the name being edited belong to the text field)
+                        let editing_this = self.renaming.as_ref().is_some_and(|(r, _)| *r == i);
+                        if !on_more && !editing_this {
+                            // double-click renames; a single click opens the page
+                            if resp.double_clicked() && n > 1 {
+                                act = Some(("rename", i));
+                            } else if tapped(ui, &resp) {
+                                go = Some(i);
+                            }
+                        }
+                    }
+                });
+                ui.separator();
+                // add a page
+                let (r, resp) = ui.allocate_exact_size(vec2(W, 36.0), Sense::click());
+                if ui.rect_contains_pointer(r) {
+                    ui.painter().rect_filled(r, CornerRadius::same(8), theme::hover());
+                }
+                ui.painter().text(pos2(r.min.x + 12.0, r.center().y), Align2::LEFT_CENTER, "+", FontId::proportional(18.0), theme::INDIGO);
+                ui.painter().text(pos2(r.min.x + 32.0, r.center().y), Align2::LEFT_CENTER, "New page", FontId::proportional(13.0), theme::INDIGO);
+                if tapped(ui, &resp.on_hover_cursor(egui::CursorIcon::PointingHand)) {
+                    add = true;
+                }
+            });
+        });
+        if cancel {
+            self.renaming = None;
+        }
+        if let Some(name) = taken {
+            self.toast(ctx, format!("There's already a page called \"{name}\""));
+        }
+        if let Some((i, name)) = renamed {
+            self.renaming = None;
+            if self.doc.page_name_taken(&name, Some(i)) {
+                // left the field (clicked away) with a taken name: keep the old one
+                self.toast(ctx, format!("There's already a page called \"{name}\"; kept the old name"));
+            } else if !name.is_empty() && self.doc.pages.get(i).is_some_and(|p| p.name != name) {
+                self.checkpoint();
+                self.doc.pages[i].name = name;
+            }
+        }
+        // opening a page closes the popup; so does a click anywhere else (but not in a page's menu)
+        let rect = area.response.rect;
+        let outside = ctx.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !rect.contains(p) && !self.pages_btn.contains(p)));
+        // Esc while renaming only cancels the rename
+        let esc = !was_renaming && ctx.input(|i| i.key_pressed(Key::Escape));
+        if (outside && !menu_was_open && !ctx.memory(|m| m.any_popup_open())) || esc {
+            self.pages_open = false;
+            self.renaming = None;
+        }
+        if go.is_some() || add || act.is_some() {
+            ctx.request_repaint(); // show the result (e.g. the rename field) right away
+        }
+        if let Some(i) = go {
+            // the page opens now; the popup closes a moment later, leaving room for a double-click
+            self.go_page(i);
+            self.pages_close_at = Some(ctx.input(|inp| inp.time) + 0.35);
+        }
+        if let Some(t) = self.pages_close_at {
+            let left = t - ctx.input(|inp| inp.time);
+            if left <= 0.0 {
+                self.pages_open = false;
+                self.pages_close_at = None;
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_secs_f64(left));
+            }
+        }
+        if add {
+            self.new_page();
+        }
+        if let Some((a, i)) = act {
+            self.page_action(a, i);
+        }
+    }
+
+    /// While presenting several pages: "← 2 / 4 · Payments →".
+    pub(super) fn page_bar(&mut self, ctx: &Context) {
+        let n = self.doc.pages.len();
+        if n < 2 {
+            return;
+        }
+        let cur = self.doc.page;
+        let mut go = None;
+        egui::Area::new(Id::new("page-bar")).anchor(Align2::CENTER_BOTTOM, vec2(0.0, -16.0)).order(Order::Foreground).show(ctx, |ui| {
+            panel().show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    if ui.add_enabled(cur > 0, egui::Button::new("←").frame(false).min_size(vec2(34.0, 30.0))).clicked() {
+                        go = Some(cur - 1);
+                    }
+                    ui.label(RichText::new(format!("{} / {n}", cur + 1)).strong());
+                    ui.label(RichText::new(&self.doc.pages[cur].name).color(theme::muted()));
+                    if ui.add_enabled(cur + 1 < n, egui::Button::new("→").frame(false).min_size(vec2(34.0, 30.0))).clicked() {
+                        go = Some(cur + 1);
+                    }
+                });
+            });
+        });
+        if let Some(i) = go {
+            self.go_page(i);
+        }
+    }
+
     pub(super) fn bottom_bars(&mut self, ctx: &Context) {
         egui::Area::new(Id::new("zoom")).anchor(Align2::LEFT_BOTTOM, vec2(self.left_x(), -12.0)).show(ctx, |ui| {
             panel().show(ui, |ui| {
@@ -1070,18 +1358,47 @@ impl App {
             panel().show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
+                    let n = self.doc.pages.len();
+                    // pages: ‹ 1/1 › is always here; the number opens the Pages popup (New page lives there)
+                    let pager_left = ui.cursor().left();
+                    let count = n.max(1);
+                    let cur = self.doc.page.min(count - 1);
+                    if ui.add_enabled(cur > 0, egui::Button::new("‹").frame(false).min_size(vec2(24.0, 34.0))).on_hover_text("Previous page  ⌃⇧Tab").clicked() {
+                        act = Some("page-prev");
+                    }
+                    let name = if n == 0 { "Page 1" } else { self.doc.pages[cur].name.as_str() };
+                    // while the popup is open it looks like the other active buttons (soft indigo)
+                    let open = self.pages_open;
+                    let label = RichText::new(format!("{}/{count}", cur + 1)).strong().color(if open { theme::active_fg() } else { theme::text() });
+                    let num = egui::Button::new(label).fill(if open { theme::active_bg() } else { Color32::TRANSPARENT }).frame(open).min_size(vec2(40.0, 34.0));
+                    let num = ui.add(num).on_hover_text(format!("{name} · pages: switch, add, rename"));
+                    if num.clicked() {
+                        act = Some("pages");
+                    }
+                    let next = ui.add_enabled(cur + 1 < count, egui::Button::new("›").frame(false).min_size(vec2(24.0, 34.0))).on_hover_text("Next page  ⌃Tab");
+                    if next.clicked() {
+                        act = Some("page-next");
+                    }
+                    // the whole pager counts as the popup's button (clicks there don't close it)
+                    self.pages_btn = Rect::from_x_y_ranges(pager_left..=next.rect.right(), num.rect.y_range());
+                    ui.separator();
                     if icon_button(ui, &mut self.icons, "alert", self.failures, "Simulate an outage  F").clicked() {
                         act = Some("failures");
                     }
                     if icon_button(ui, &mut self.icons, "film", self.scn_panel, "Request flows: record how a request travels, then play it").clicked() {
                         act = Some("scenarios");
                     }
-                    if flows {
-                        let (icon, tip) = if self.playing { ("pause", "Pause flow animation") } else { ("play", "Play flow animation") };
-                        if icon_button(ui, &mut self.icons, icon, self.playing, tip).clicked() {
+                    // always here (greyed out with nothing to animate), so the buttons never shift
+                    let (icon, tip) = match (flows, self.playing) {
+                        (false, _) => ("play", "Flow animation: give a connector a flow (in its properties) to animate it"),
+                        (true, true) => ("pause", "Pause flow animation"),
+                        (true, false) => ("play", "Play flow animation"),
+                    };
+                    ui.add_enabled_ui(flows, |ui| {
+                        if icon_button(ui, &mut self.icons, icon, flows && self.playing, tip).clicked() {
                             self.playing = !self.playing;
                         }
-                    }
+                    });
                     if icon_button(ui, &mut self.icons, "users", self.collab.is_some(), "Collaborate live").clicked() {
                         act = Some("collab");
                     }
@@ -1323,7 +1640,7 @@ impl App {
                             if let Some(t) = self.icons.get(ctx, i.id) {
                                 ui.painter().image(t, r.shrink(8.0), render::UV, if on { ed.b.color } else { theme::text() });
                             }
-                            if resp.on_hover_text(i.label).clicked() {
+                            if resp.on_hover_text(i.label).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                                 ed.b.icon = i.id.to_string();
                             }
                         }
@@ -1928,7 +2245,9 @@ impl App {
             self.toast = None;
             return;
         }
-        egui::Area::new(Id::new("toast")).anchor(Align2::CENTER_BOTTOM, vec2(self.mid_x(), -24.0)).order(Order::Tooltip).show(ctx, |ui| {
+        // above the page bar while presenting
+        let y = if self.present.is_some() && self.doc.pages.len() > 1 { -72.0 } else { -24.0 };
+        egui::Area::new(Id::new("toast")).anchor(Align2::CENTER_BOTTOM, vec2(self.mid_x(), y)).order(Order::Tooltip).show(ctx, |ui| {
             Frame::new().fill(Color32::from_rgb(0x11, 0x18, 0x27)).corner_radius(10).inner_margin(Margin::symmetric(14, 9)).show(ui, |ui| {
                 ui.label(RichText::new(msg).color(Color32::WHITE));
             });

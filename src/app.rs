@@ -5,6 +5,7 @@ use crate::model::*;
 use crate::render::{self, Opts, View};
 use crate::{code, import, layout, theme};
 use eframe::egui::{self, Align2, Color32, Context, CornerRadius, Event, FontId, Frame, Id, Key, Modifiers, PointerButton, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Vec2, pos2, vec2};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
 
@@ -100,6 +101,9 @@ pub(crate) const COMMANDS: &[(&str, &str, &str)] = &[
     ("Undo", "⌘Z", "undo"),
     ("Redo", "⇧⌘Z", "redo"),
     ("Zoom to fit", "⇧1", "fit"),
+    ("New page", "", "page-new"),
+    ("Next page", "⌃Tab", "page-next"),
+    ("Previous page", "⌃⇧Tab", "page-prev"),
     ("Present (full screen)", "⌘⏎", "present"),
     ("Select all", "⌘A", "all"),
     ("Duplicate", "⌘D", "dup"),
@@ -198,6 +202,17 @@ pub struct App {
     fit_pending: bool,
     /// presentation mode: Some(whether the window has gone full screen yet)
     present: Option<bool>,
+    /// the Pages popup (thumbnails of every page) is open, and where its button is
+    pages_open: bool,
+    pages_btn: Rect,
+    /// a page was just picked: the popup closes at this time, unless a second click (rename) comes first
+    pages_close_at: Option<f64>,
+    /// a page being renamed in the strip, with the text typed so far
+    renaming: Option<(usize, String)>,
+    /// the rename field should take keyboard focus (and select its text) on the next frame
+    rename_focus: bool,
+    /// other pages as drawable docs for their thumbnails, with a signature to spot changes
+    thumbs: HashMap<usize, ((usize, u64, u64), Doc)>,
     cascade: f32,
     nudge: Option<Vec2>,
     // v0.2
@@ -222,6 +237,8 @@ pub struct App {
     join_code: String,
     my_name: String,
     custom_bounds: Vec<CustomBoundary>,
+    /// recently opened or saved files, newest first
+    recent: Vec<PathBuf>,
     bound_editor: Option<BoundEditor>,
     lib_custom: usize,
     /// recording appends to this scenario instead of creating a new one
@@ -261,9 +278,15 @@ impl App {
             None => st.and_then(|s| s.get_string("doc")).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
         };
         let my_name = st.and_then(|s| s.get_string("name")).unwrap_or_else(|| std::env::var("USER").unwrap_or("me".into()));
-        App {
+        let mut app = App {
             fit_pending: !doc.elements.is_empty(),
             present: None,
+            pages_open: false,
+            pages_btn: Rect::NOTHING,
+            pages_close_at: None,
+            renaming: None,
+            rename_focus: false,
+            thumbs: HashMap::new(),
             doc,
             undo: vec![],
             redo: vec![],
@@ -316,6 +339,7 @@ impl App {
             join_code: String::new(),
             my_name,
             custom_bounds: st.and_then(|s| s.get_string("boundaries")).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
+            recent: st.and_then(|s| s.get_string("recent")).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
             bound_editor: None,
             lib_custom: 0,
             rec_into: None,
@@ -328,7 +352,11 @@ impl App {
             touch: false,
             press_at: None,
             menu_at: Pos2::ZERO,
+        };
+        if let Some(p) = app.path.clone() {
+            app.remember(&p);
         }
+        app
     }
 
     fn view(&self) -> View {
@@ -376,10 +404,71 @@ impl App {
             return;
         };
         // keep clear of the floating bars (none while presenting)
-        let c = if self.present.is_some() { self.canvas.shrink(40.0) } else { self.canvas.shrink2(vec2(40.0, 70.0)) };
+        let mut c = if self.present.is_some() { self.canvas.shrink(40.0) } else { self.canvas.shrink2(vec2(40.0, 70.0)) };
+        if self.present.is_some() && self.doc.pages.len() > 1 {
+            c.max.y -= 40.0; // the page bar
+        }
         let max = if self.present.is_some() { 3.0 } else { 1.5 };
         self.zoom = ((c.width() - 40.0) / b.width()).min((c.height() - 40.0) / b.height()).clamp(0.2, max);
         self.offset = c.center() - self.canvas.min - b.center().to_vec2() * self.zoom;
+    }
+
+    /// Opens page `i` and fits it to the screen.
+    fn go_page(&mut self, i: usize) {
+        if i >= self.doc.pages.len() || i == self.doc.page {
+            return;
+        }
+        self.finish_edit();
+        if let Some((id, _)) = self.pending_arrow.take() {
+            self.doc.remove(&[id]);
+        }
+        self.sel.clear();
+        self.renaming = None;
+        self.doc.switch_page(i);
+        self.fit();
+    }
+
+    /// Adds a page after the others, opens it and starts naming it.
+    fn new_page(&mut self) {
+        self.checkpoint();
+        let name = self.doc.next_page_name();
+        let i = self.doc.add_page(&name);
+        self.go_page(i);
+        self.start_rename(i);
+    }
+
+    /// Starts renaming page `i` in the Pages popup (which opens if needed).
+    fn start_rename(&mut self, i: usize) {
+        if let Some(p) = self.doc.pages.get(i) {
+            self.renaming = Some((i, p.name.clone()));
+            self.rename_focus = true;
+            self.pages_open = true;
+            self.pages_close_at = None;
+        }
+    }
+
+    /// Pages-popup menu actions on page `i`.
+    fn page_action(&mut self, a: &str, i: usize) {
+        match a {
+            "rename" => self.start_rename(i),
+            "duplicate" => {
+                self.checkpoint();
+                let j = self.doc.duplicate_page(i);
+                self.go_page(j);
+            }
+            "left" | "right" => {
+                self.checkpoint();
+                let to = if a == "left" { i.saturating_sub(1) } else { i + 1 };
+                self.doc.move_page(i, to);
+            }
+            "delete" => {
+                self.checkpoint();
+                self.sel.clear();
+                self.doc.remove_page(i);
+                self.fit();
+            }
+            _ => {}
+        }
     }
 
     fn center_on(&mut self, w: Pos2) {
@@ -709,6 +798,10 @@ impl App {
                 self.path = None;
             }
             "fit" => self.fit(),
+            "page-new" => self.new_page(),
+            "pages" => self.pages_open = !self.pages_open,
+            "page-next" => self.go_page(self.doc.page + 1),
+            "page-prev" => self.go_page(self.doc.page.saturating_sub(1)),
             "present" => {
                 if self.present.take().is_some() {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
@@ -804,6 +897,7 @@ impl App {
                 self.dirty = false;
                 self.last_saved = json;
                 self.toast(ctx, format!("Saved {}", p.file_name().unwrap_or_default().to_string_lossy()));
+                self.remember(&p);
                 self.path = Some(p);
             }
             Err(e) => self.toast(ctx, format!("Save failed: {e}")),
@@ -853,12 +947,21 @@ impl App {
                 self.doc = d;
                 self.sel.clear();
                 self.last_saved = serde_json::to_string_pretty(&self.doc).unwrap_or_default();
+                self.remember(&p);
                 self.path = Some(p);
                 self.dirty = false;
                 self.fit();
             }
             Err(e) => self.toast(ctx, format!("Open failed: {e}")),
         }
+    }
+
+    /// Puts a file at the top of the ☰ menu's Recent list.
+    fn remember(&mut self, p: &std::path::Path) {
+        let p = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+        self.recent.retain(|r| *r != p);
+        self.recent.insert(0, p);
+        self.recent.truncate(8);
     }
 
     fn import(&mut self, ctx: &Context) {
@@ -935,8 +1038,10 @@ impl App {
         let shift_cmd = Modifiers::COMMAND | Modifiers::SHIFT;
         if self.present.is_some() {
             // presenting: only leave, refit, or simulate an outage
-            let (esc, toggle, fit, fail, fs) = ctx.input_mut(|i| {
-                (i.key_pressed(Key::Escape), i.consume_key(cmd, Key::Enter), i.key_pressed(Key::Num1), i.key_pressed(Key::F), i.viewport().fullscreen)
+            let (esc, toggle, fit, fail, fs, next, prev) = ctx.input_mut(|i| {
+                let next = [Key::ArrowRight, Key::ArrowDown, Key::Space, Key::PageDown].iter().any(|k| i.key_pressed(*k));
+                let prev = [Key::ArrowLeft, Key::ArrowUp, Key::PageUp].iter().any(|k| i.key_pressed(*k));
+                (i.key_pressed(Key::Escape), i.consume_key(cmd, Key::Enter), i.key_pressed(Key::Num1), i.key_pressed(Key::F), i.viewport().fullscreen, next, prev)
             });
             // the window left full screen some other way (green button, ⌃⌘F): stop presenting too
             let left_fs = self.present == Some(true) && fs == Some(false);
@@ -949,12 +1054,21 @@ impl App {
                 self.fit();
             } else if fail {
                 self.run(ctx, "failures");
+            } else if next {
+                self.go_page(self.doc.page + 1);
+            } else if prev {
+                self.go_page(self.doc.page.saturating_sub(1));
             }
             return;
         }
         ctx.input_mut(|i| {
             if i.consume_key(cmd, Key::Enter) {
                 act.push("present");
+            }
+            if i.consume_key(Modifiers::CTRL | Modifiers::SHIFT, Key::Tab) {
+                act.push("page-prev");
+            } else if i.consume_key(Modifiers::CTRL, Key::Tab) {
+                act.push("page-next");
             }
             if i.consume_key(cmd, Key::K) {
                 act.push("palette");
@@ -1024,6 +1138,12 @@ impl App {
                 }
                 if i.key_pressed(Key::F) {
                     act.push("failures");
+                }
+                if i.key_pressed(Key::PageDown) {
+                    act.push("page-next");
+                }
+                if i.key_pressed(Key::PageUp) {
+                    act.push("page-prev");
                 }
                 if i.key_pressed(Key::Slash) {
                     act.push("picker");
@@ -1316,6 +1436,28 @@ impl App {
         if let (true, Some(p)) = (zd != 1.0, hover) {
             self.zoom_at(p, zd);
         }
+        if self.doc.pages.len() < 2 {
+            return;
+        }
+        // a tap (not a drag) turns the page: the left third goes back
+        let (press, release) = ctx.input(|i| {
+            let find = |down: bool| i.events.iter().find_map(|e| match e {
+                egui::Event::PointerButton { pos, pressed, button: PointerButton::Primary, .. } if *pressed == down => Some(*pos),
+                _ => None,
+            });
+            (find(true), find(false))
+        });
+        if let Some(p) = press {
+            self.press_at = Some(p);
+        }
+        if let (Some(a), Some(b)) = (self.press_at, release) {
+            self.press_at = None;
+            let on_canvas = ctx.layer_id_at(b).is_none_or(|l| l.order == egui::Order::Background);
+            if a.distance(b) < 10.0 && on_canvas {
+                let i = self.doc.page;
+                self.go_page(if b.x < self.canvas.left() + self.canvas.width() / 3.0 { i.saturating_sub(1) } else { i + 1 });
+            }
+        }
     }
 
     fn canvas_input(&mut self, ctx: &Context, resp: &Response) {
@@ -1325,14 +1467,14 @@ impl App {
         let canvas = self.canvas;
         let tap_at = ctx.input(|i| {
             i.events.iter().rev().find_map(|e| match e {
-                egui::Event::PointerButton { pos, pressed: false, .. } if canvas.contains(*pos) => Some(*pos),
+                egui::Event::PointerButton { pos, pressed: false, button: PointerButton::Primary, .. } if canvas.contains(*pos) => Some(*pos),
                 _ => None,
             })
         });
         // a tap: pressed and released on the canvas close together, not on a panel floating above
         // it. egui misses finger taps on controls that can also be dragged (like this canvas).
         if let Some(p) = ctx.input(|i| i.events.iter().find_map(|e| match e {
-            egui::Event::PointerButton { pos, pressed: true, .. } if canvas.contains(*pos) => Some(*pos),
+            egui::Event::PointerButton { pos, pressed: true, button: PointerButton::Primary, .. } if canvas.contains(*pos) => Some(*pos),
             _ => None,
         })) {
             self.press_at = Some(p);
@@ -1346,6 +1488,8 @@ impl App {
         let clicked = resp.clicked() || finger_tap;
         let (mods, space, scroll, zd, hover) = ctx.input(|i| (i.modifiers, i.key_down(Key::Space), i.smooth_scroll_delta, i.zoom_delta(), i.pointer.hover_pos()));
         let space = space && !ctx.wants_keyboard_input();
+        // add to / remove from the selection: ⇧, ⌘ or Ctrl + click
+        let add = mods.shift || mods.command || mods.ctrl;
         // panning by drag only with Space held or the middle button (two-finger scroll always pans)
         let pan_drag = resp.dragged_by(PointerButton::Middle) || (resp.dragged() && space);
         if resp.hovered() {
@@ -1469,7 +1613,7 @@ impl App {
             let w = v.s2w(sp);
             self.finish_edit();
             match self.tool {
-                Tool::Select => self.begin_select_drag(ctx, sp, w, mods.shift),
+                Tool::Select => self.begin_select_drag(ctx, sp, w, add),
                 Tool::Rect | Tool::Ellipse | Tool::Diamond | Tool::Region | Tool::Sticky => {
                     self.checkpoint();
                     let e = self.new_shape(self.tool, Rect::from_min_size(w, Vec2::ZERO));
@@ -1669,7 +1813,7 @@ impl App {
             }
             match self.tool {
                 Tool::Select | Tool::Hand | Tool::Arrow | Tool::Pen => match self.doc.hit(w, 6.0 / self.zoom) {
-                    Some(id) if mods.shift => {
+                    Some(id) if add => {
                         if let Some(i) = self.sel.iter().position(|s| *s == id) {
                             self.sel.remove(i);
                         } else {
@@ -1677,7 +1821,7 @@ impl App {
                         }
                     }
                     Some(id) => self.sel = vec![id],
-                    None if !mods.shift => self.sel.clear(),
+                    None if !add => self.sel.clear(),
                     None => {}
                 },
                 Tool::Rect | Tool::Ellipse | Tool::Diamond | Tool::Region | Tool::Sticky => {
@@ -1899,6 +2043,7 @@ impl eframe::App for App {
         storage.set_string("name", self.my_name.clone());
         storage.set_string("autosave", if self.autosave { "1" } else { "0" }.into());
         storage.set_string("boundaries", serde_json::to_string(&self.custom_bounds).unwrap_or_default());
+        storage.set_string("recent", serde_json::to_string(&self.recent).unwrap_or_default());
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -1975,7 +2120,11 @@ impl eframe::App for App {
                 self.canvas_input(ctx, &resp);
             }
             let space = ctx.input(|i| i.key_down(Key::Space)) && !ctx.wants_keyboard_input();
-            if presenting {
+            // the canvas only picks the cursor while the pointer is on it (or dragging on it);
+            // over a panel, bar or popup that one decides
+            let on_canvas = resp.hovered() || resp.dragged() || !matches!(self.drag, Drag::None);
+            if !on_canvas {
+            } else if presenting {
                 ctx.set_cursor_icon(if resp.dragged() { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Default });
             } else if matches!(self.drag, Drag::Pan) || space || self.tool == Tool::Hand {
                 ctx.set_cursor_icon(if matches!(self.drag, Drag::Pan) { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
@@ -2038,6 +2187,7 @@ impl eframe::App for App {
         });
 
         if presenting {
+            self.page_bar(ctx);
             self.toast_view(ctx);
         } else {
             self.toolbar(ctx);
@@ -2045,6 +2195,7 @@ impl eframe::App for App {
             self.top_right(ctx);
             self.drag_ghost(ctx);
             self.bottom_bars(ctx);
+            self.pages_popup(ctx);
             self.scenario_panel(ctx);
             self.recording_banner(ctx);
             self.collab_window(ctx);
@@ -2069,6 +2220,13 @@ impl eframe::App for App {
 
 fn load(p: &std::path::Path) -> Result<Doc, String> {
     crate::lenient::parse(&std::fs::read_to_string(p).map_err(|e| e.to_string())?).map(|(d, _)| d)
+}
+
+/// Cheap fingerprint of a page's contents, to know when its thumbnail must be rebuilt.
+// ponytail: count + ids + positions; a pure restyle of a hidden page keeps the old thumbnail until it changes shape
+fn page_sig(els: &[Element]) -> (usize, u64, u64) {
+    let pos: f64 = els.iter().map(|e| (e.rect.min.x + 3.0 * e.rect.min.y + 7.0 * e.rect.max.x + 11.0 * e.rect.max.y) as f64).sum();
+    (els.len(), els.iter().map(|e| e.id).sum(), pos.to_bits())
 }
 
 fn render_bounds(els: &[Element]) -> Rect {

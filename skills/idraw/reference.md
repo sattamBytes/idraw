@@ -1,6 +1,6 @@
 # .idraw format reference
 
-A file is `{ "elements": [...], "scenarios": [...], "sketch": false, "jumps": "hop" }`. Only `elements` is required. A bare `[...]` list of elements also works. Unknown fields are ignored with a warning from `idraw check`.
+A file is `{ "elements": [...], "scenarios": [...], "sketch": false, "jumps": "hop" }`. Only `elements` is required. A bare `[...]` list of elements also works. Several flows go in `pages` instead (see Pages). Unknown fields are ignored with a warning from `idraw check`.
 
 Elements are drawn in list order (later = on top), except boundaries (`region`) which always go behind.
 
@@ -73,6 +73,21 @@ Animations show in the app and in `.gif` renders; a `.png` shows one frame.
 
 - `text`: free text; size it with `font`. Good for titles, captions, legends.
 - `sticky`: a yellow-ish note card (`fill` to recolour). Good for callouts.
+
+## Pages (several flows in one file)
+
+When a system has several separate stories (checkout, login, payments), give each its own page instead of one crowded canvas. Each page is its own canvas with its own coordinates; the app shows them as a storyboard strip, and Present steps through them like slides.
+
+```json
+{ "pages": [
+  { "name": "Checkout", "elements": [ { "kind": "node", "id": "api", "x": 0, "y": 0 }, ... ] },
+  { "name": "Login",    "elements": [ { "kind": "node", "id": "api", "x": 0, "y": 0 }, ... ] }
+] }
+```
+
+- Use `pages` *or* top-level `elements`, not both.
+- String ids are per page, so `"api"` can appear on several pages; connectors only link boxes on the same page.
+- `idraw check` checks every page; `idraw render file.idraw --page 2` (or `--page "Login"`) draws one page (default: the first) to `file-2.png`.
 
 ## Scenarios (step-by-step walkthroughs)
 
