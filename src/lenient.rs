@@ -423,12 +423,26 @@ mod tests {
         let edge = d.elements.iter().find(|e| e.kind == Kind::Arrow).unwrap();
         assert!(d.get(edge.to.id.unwrap()).is_some_and(|e| e.text == "Users"));
         assert!(d.page_elements(1).iter().all(|e| d.get(e.id).is_none()), "no shared ids");
-        // reorder keeps the open page open; deleting down to one page leaves a plain diagram
+        // reorder keeps the open page open; deleting down to one page keeps that page and its name
         d.move_page(2, 0);
         assert_eq!((d.page, d.pages[0].name.as_str()), (0, "Login copy"));
         d.remove_page(0);
         d.remove_page(1);
-        assert!(d.pages.is_empty() && d.page == 0 && d.elements.len() == 3);
+        assert_eq!((d.pages.len(), d.pages[0].name.as_str(), d.page, d.elements.len()), (1, "Checkout", 0, 3));
+        d.remove_page(0);
+        assert_eq!(d.pages.len(), 1, "the last page can't be deleted");
+        // two pages x and y: deleting x leaves y, still called y (with y's content open)
+        let mut d = Doc::default();
+        d.add(Element::new(Kind::Rect, Rect::from_min_size(pos2(0.0, 0.0), vec2(10.0, 10.0))));
+        d.ensure_page();
+        d.pages[0].name = "x".into();
+        let y = d.add_page("y");
+        d.switch_page(y);
+        d.add(Element::new(Kind::Ellipse, Rect::from_min_size(pos2(0.0, 0.0), vec2(10.0, 10.0))));
+        d.switch_page(0);
+        d.remove_page(0);
+        assert_eq!((d.pages.len(), d.pages[0].name.as_str(), d.page), (1, "y", 0));
+        assert!(d.elements.len() == 1 && d.elements[0].kind == Kind::Ellipse);
         // page names stay unique
         let mut d = Doc::default();
         d.add_page("Page 2");

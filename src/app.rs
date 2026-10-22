@@ -207,6 +207,8 @@ pub struct App {
     pages_btn: Rect,
     /// a page was just picked: the popup closes at this time, unless a second click (rename) comes first
     pages_close_at: Option<f64>,
+    /// a page's right-click menu was showing last frame (its clicks mustn't close the popup)
+    page_menu_shown: bool,
     /// a page being renamed in the strip, with the text typed so far
     renaming: Option<(usize, String)>,
     /// the rename field should take keyboard focus (and select its text) on the next frame
@@ -284,6 +286,7 @@ impl App {
             pages_open: false,
             pages_btn: Rect::NOTHING,
             pages_close_at: None,
+            page_menu_shown: false,
             renaming: None,
             rename_focus: false,
             thumbs: HashMap::new(),
@@ -439,6 +442,7 @@ impl App {
 
     /// Starts renaming page `i` in the Pages popup (which opens if needed).
     fn start_rename(&mut self, i: usize) {
+        self.doc.ensure_page();
         if let Some(p) = self.doc.pages.get(i) {
             self.renaming = Some((i, p.name.clone()));
             self.rename_focus = true;
@@ -449,6 +453,7 @@ impl App {
 
     /// Pages-popup menu actions on page `i`.
     fn page_action(&mut self, a: &str, i: usize) {
+        self.doc.ensure_page();
         match a {
             "rename" => self.start_rename(i),
             "duplicate" => {

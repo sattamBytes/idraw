@@ -585,7 +585,7 @@ impl Doc {
         i + 1
     }
 
-    /// Deletes page `i` (never the last one). One page left means a plain single diagram again.
+    /// Deletes page `i` (never the last one). The pages left keep their names.
     pub fn remove_page(&mut self, i: usize) {
         if self.pages.len() < 2 || i >= self.pages.len() {
             return;
@@ -597,8 +597,12 @@ impl Doc {
         if self.page > i {
             self.page -= 1;
         }
-        if self.pages.len() == 1 {
-            self.pages.clear();
+    }
+
+    /// Gives a plain single diagram a page entry ("Page 1"), so it can be named like any page.
+    pub fn ensure_page(&mut self) {
+        if self.pages.is_empty() {
+            self.pages.push(Page { name: "Page 1".into(), elements: vec![] });
             self.page = 0;
         }
     }

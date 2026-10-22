@@ -1088,8 +1088,9 @@ impl App {
         // a single diagram shows as one row, "Page 1"; New page turns it into the first of several
         let count = n.max(1);
         let was_renaming = self.renaming.is_some();
-        // a page menu open at the start of the frame owns this frame's clicks
-        let menu_was_open = ctx.memory(|m| m.any_popup_open());
+        // a page menu (⋯ or right-click) open at the start of the frame owns this frame's clicks
+        let menu_was_open = ctx.memory(|m| m.any_popup_open()) || std::mem::take(&mut self.page_menu_shown);
+        let mut ctx_menu_shown = false;
         let (mut go, mut add, mut act, mut renamed, mut cancel) = (None, false, None, None, false);
         let mut taken: Option<String> = None;
         let page_menu = |ui: &mut Ui, i: usize, act: &mut Option<(&'static str, usize)>| {
@@ -1097,7 +1098,7 @@ impl App {
             for (label, a) in [("Rename", "rename"), ("Duplicate", "duplicate"), ("Move up", "left"), ("Move down", "right")] {
                 let ok = match a {
                     "left" => i > 0,
-                    "right" => i + 1 < n,
+                    "right" => i + 1 < count,
                     _ => true,
                 };
                 if ui.add_enabled(ok, egui::Button::new(label).frame(false).min_size(vec2(170.0, 26.0))).clicked() {
@@ -1106,7 +1107,9 @@ impl App {
                 }
             }
             ui.separator();
-            if ui.add(egui::Button::new(RichText::new("Delete page").color(theme::RED)).frame(false).min_size(vec2(170.0, 26.0))).clicked() {
+            // the last page can't be deleted
+            let del = egui::Button::new(RichText::new("Delete page").color(if count > 1 { theme::RED } else { theme::muted() })).frame(false).min_size(vec2(170.0, 26.0));
+            if ui.add_enabled(count > 1, del).clicked() {
                 *act = Some(("delete", i));
                 ui.close_menu();
             }
@@ -1192,7 +1195,7 @@ impl App {
                         let menu_id = ui.id().with(("page-menu", i));
                         let menu_open = ui.memory(|m| m.is_popup_open(menu_id));
                         let mut on_more = false;
-                        if n > 1 && (over || active || menu_open) {
+                        if over || active || menu_open {
                             let m = ui.interact(more, ui.id().with(("page-more", i)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
                             on_more = m.hovered() || m.is_pointer_button_down_on();
                             if m.hovered() || menu_open {
@@ -1220,14 +1223,15 @@ impl App {
                                 }
                             }
                         }
-                        if n > 1 {
-                            resp.context_menu(|ui| page_menu(ui, i, &mut act));
-                        }
+                        resp.context_menu(|ui| {
+                            ctx_menu_shown = true;
+                            page_menu(ui, i, &mut act);
+                        });
                         // (taps inside the name being edited belong to the text field)
                         let editing_this = self.renaming.as_ref().is_some_and(|(r, _)| *r == i);
                         if !on_more && !editing_this {
                             // double-click renames; a single click opens the page
-                            if resp.double_clicked() && n > 1 {
+                            if resp.double_clicked() {
                                 act = Some(("rename", i));
                             } else if tapped(ui, &resp) {
                                 go = Some(i);
@@ -1248,6 +1252,7 @@ impl App {
                 }
             });
         });
+        self.page_menu_shown = ctx_menu_shown;
         if cancel {
             self.renaming = None;
         }
