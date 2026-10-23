@@ -2131,7 +2131,14 @@ impl App {
         let focus = std::mem::take(&mut self.edit_focus);
         let mut text = e.text.clone();
         let pill = e.kind == Kind::Arrow;
-        egui::Area::new(Id::new("editor")).fixed_pos(pos).order(Order::Foreground).show(ctx, |ui| {
+        // one editor per element: an Area remembers its last size, and a shared one would squeeze
+        // a long title into the width of whatever short label was edited before it
+        // (not constrained to the window: a long line may run past the edge, but stays on its text)
+        egui::Area::new(Id::new(("editor", id))).fixed_pos(pos).constrain(false).order(Order::Foreground).show(ctx, |ui| {
+            // room for the full line (plus the pill's padding); the text field wraps within this
+            ui.set_max_width(width.max(40.0) + 32.0);
+            // and the part past the canvas edge doesn't draw over the side panels
+            ui.set_clip_rect(self.canvas);
             // a soft highlight so selected text stays readable whatever its colour
             ui.visuals_mut().selection.bg_fill = theme::INDIGO.gamma_multiply(0.22);
             let te = TextEdit::multiline(&mut text)
